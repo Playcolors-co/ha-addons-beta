@@ -209,7 +209,11 @@ class Bridge:
     # ---------------- MQTT / Home Assistant ----------------
 
     def connect_mqtt(self):
-        c = mqtt.Client(client_id="ebo_air2_bridge")
+        # paho-mqtt 2.x requires the callback API version; fall back for 1.x
+        try:
+            c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="ebo_air2_bridge")
+        except (AttributeError, TypeError):
+            c = mqtt.Client(client_id="ebo_air2_bridge")
         if self.mqtt_conf.get("user"):
             c.username_pw_set(self.mqtt_conf["user"], self.mqtt_conf["pass"])
         c.on_connect = self._on_mqtt_connect
@@ -236,7 +240,7 @@ class Bridge:
         self.mqtt.publish(topic, json.dumps(cfg), retain=True)
 
     def _on_mqtt_connect(self, c, u, flags, rc):
-        log("[MQTT] connesso rc=%s" % rc)
+        log("[MQTT] connected rc=%s" % rc)
         c.publish("%s/status" % NODE, "online", retain=True)
         st = "%s/state" % NODE
 
