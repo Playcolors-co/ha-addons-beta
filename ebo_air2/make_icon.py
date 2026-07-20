@@ -12,7 +12,7 @@ def rounded_rect_gradient(size, radius, top, bot):
     for y in range(h):
         c=lerp(top,bot,y/h)
         for x in range(w): px[x,y]=c
-    # maschera angoli arrotondati
+    # rounded-corner mask
     mask=Image.new("L",(w,h),0)
     md=ImageDraw.Draw(mask)
     md.rounded_rectangle([0,0,w-1,h-1],radius=radius,fill=255)
@@ -28,14 +28,14 @@ def draw_ebo(size, with_bg=True):
         img=Image.new("RGBA",(W,H),(0,0,0,0))
     d=ImageDraw.Draw(img)
     cx=W//2; cy=int(H*0.54); r=int(W*0.34)
-    # ombra a terra
+    # ground shadow
     sh=Image.new("RGBA",(W,H),(0,0,0,0))
     ds=ImageDraw.Draw(sh)
     ds.ellipse([cx-r*0.9, cy+r*0.72, cx+r*0.9, cy+r*1.02], fill=(0,0,0,90))
     sh=sh.filter(ImageFilter.GaussianBlur(W*0.02))
     img=Image.alpha_composite(img, sh)
     d=ImageDraw.Draw(img)
-    # corpo sfera (gradiente radiale chiaro)
+    # sphere body (light radial gradient)
     body=Image.new("RGBA",(W,H),(0,0,0,0))
     bp=body.load()
     for y in range(cy-r, cy+r):
@@ -48,19 +48,19 @@ def draw_ebo(size, with_bg=True):
                 bp[x,y]=col+(255,)
     img=Image.alpha_composite(img, body)
     d=ImageDraw.Draw(img)
-    # banda schermo (faccia) scura
+    # dark screen (face) band
     fw=int(r*1.5); fh=int(r*0.78)
     fx0=cx-fw//2; fy0=cy-int(r*0.42); fx1=cx+fw//2; fy1=fy0+fh
     face=Image.new("RGBA",(W,H),(0,0,0,0))
     df=ImageDraw.Draw(face)
     df.rounded_rectangle([fx0,fy0,fx1,fy1], radius=int(fh*0.5), fill=(14,26,31,255))
-    # ritaglia la banda al cerchio del corpo
+    # clip the band to the body circle
     cmask=Image.new("L",(W,H),0)
     ImageDraw.Draw(cmask).ellipse([cx-r,cy-r,cx+r,cy+r],fill=255)
     face.putalpha(Image.composite(face.getchannel("A"), Image.new("L",(W,H),0), cmask))
     img=Image.alpha_composite(img, face)
     d=ImageDraw.Draw(img)
-    # occhi ciano con glow
+    # cyan eyes with glow
     eye_r=int(r*0.16); ey=cy-int(r*0.02); ex=int(r*0.32)
     glow=Image.new("RGBA",(W,H),(0,0,0,0))
     dg=ImageDraw.Draw(glow)
@@ -71,7 +71,7 @@ def draw_ebo(size, with_bg=True):
     d=ImageDraw.Draw(img)
     for sgn in (-1,1):
         d.ellipse([cx+sgn*ex-eye_r, ey-eye_r, cx+sgn*ex+eye_r, ey+eye_r], fill=(64,232,232,255))
-        # riflesso
+        # highlight
         hr=int(eye_r*0.36)
         d.ellipse([cx+sgn*ex-hr-eye_r*0.25, ey-hr-eye_r*0.3, cx+sgn*ex+hr-eye_r*0.25, ey+hr-eye_r*0.3], fill=(230,255,255,255))
     return img
@@ -81,7 +81,7 @@ icon=draw_ebo(512, with_bg=True).resize((512,512), Image.LANCZOS)
 icon.save("addon/ebo_air2/icon.png")
 print("icon.png", icon.size)
 
-# logo largo con testo
+# wide logo with text
 LW,LH=1000,320
 S2=2
 logo=Image.new("RGBA",(LW*S2,LH*S2),(0,0,0,0))
@@ -100,11 +100,11 @@ logo=logo.resize((LW,LH), Image.LANCZOS)
 logo.save("addon/ebo_air2/logo.png")
 print("logo.png", logo.size)
 
-# --- logo v2: fondo teal come l'icona, testo bianco ---
+# --- logo v2: teal background like the icon, white text ---
 LW,LH=1000,340; S2=2
 bg=rounded_rect_gradient(LH*S2, int(LH*S2*0.16), (11,61,71),(16,112,122))
 logo=Image.new("RGBA",(LW*S2,LH*S2),(0,0,0,0))
-# banda di sfondo su tutta la larghezza
+# full-width background band
 band=rounded_rect_gradient(LW*S2, int(LH*S2*0.16), (11,61,71),(16,112,122))
 band=band.resize((LW*S2,LH*S2))
 logo.alpha_composite(band,(0,0))
