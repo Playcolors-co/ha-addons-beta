@@ -57,7 +57,8 @@ add-on log for `[video] N frames received` to confirm the robot is publishing vi
 ## Known limitations
 
 - **amd64 only** (Agora SDK is x86_64).
-- **Video not included** (control + telemetry only).
+- **Video** requires the robot to publish its stream; if the log shows 0 frames, the
+  robot may only stream on demand (open an issue).
 - One control client at a time: while the add-on is active, the EBO HOME app on the same
   account may be disconnected from control.
 - Depends on Enabot's cloud API: a change on their side may require an update.
