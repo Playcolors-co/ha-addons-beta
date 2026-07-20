@@ -1,13 +1,13 @@
 """
-ebo_sign.py — firma delle richieste API Enabot (x-ebo-sign v2), ricostruita per RE.
+ebo_sign.py — Enabot API request signing (x-ebo-sign v2), reconstructed via RE.
 
-Verificato riproducendo esattamente firme catturate dall'app.
+Verified by exactly reproducing signatures captured from the app.
 
     x-ebo-sign = base64( HMAC_SHA256( KEY, canonical ) )
     canonical  = METHOD & PATH & QUERY & "x-ebo-app-type=2&x-ebo-sign-nonce=<n>&"
-                 "x-ebo-sign-timestamp=<ts>&x-ebo-sign-version=2&" [ + sha256hex(body) se c'è body ]
+                 "x-ebo-sign-timestamp=<ts>&x-ebo-sign-version=2&" [ + sha256hex(body) if there is a body ]
 
-KEY è una costante dell'app (estratta da un hook su javax.crypto.Mac).
+KEY is an app-level constant (extracted from a hook on javax.crypto.Mac).
 """
 import base64
 import hashlib
@@ -21,7 +21,7 @@ _ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
 
 def _nonce(n=8):
-    # nonce alfanumerico; non serve crittograficamente forte
+    # alphanumeric nonce; does not need to be cryptographically strong
     import random
     return "".join(random.choice(_ALPHABET) for _ in range(n))
 
@@ -49,7 +49,7 @@ def sign(method: str, path: str, query: str = "", body: bytes = b"",
 
 
 if __name__ == "__main__":
-    # regressione con firme catturate
+    # regression against captured signatures
     h = sign("GET", "/api/v1/ebox/robots/robot", "", b"",
              ts=1784577185, nonce="muSUKk2d")
     assert h["x-ebo-sign"] == "G7Vwr2513Jua/nnCof+3iJbV3XcadBz9EK50C6CQWjk=", h["x-ebo-sign"]
@@ -57,4 +57,4 @@ if __name__ == "__main__":
     h2 = sign("POST", "/api/v1/data/activity/ns/latest", "", b,
               ts=1784577185, nonce="mrRM7IKT")
     assert h2["x-ebo-sign"] == "mtlqdQIz2lvGNDm9r7cdcRfazlmbHCu+qBKBgoK0NDA=", h2["x-ebo-sign"]
-    print("firme x-ebo-sign riprodotte correttamente (GET e POST)")
+    print("x-ebo-sign signatures reproduced correctly (GET and POST)")

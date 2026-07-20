@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """
-ebo_bridge.py — ponte EBO Air 2 ⇆ Home Assistant.
+ebo_bridge.py — EBO Air 2 ⇆ Home Assistant bridge.
 
-Instaura la sessione di controllo del robot (login RTM + join RTC, come fa l'app),
-poi:
-  - pubblica la telemetria come entità Home Assistant via MQTT Discovery
-  - riceve comandi da HA (velocità, laser, movimento) e li inoltra al robot
-  - mantiene un loop di movimento a 10 Hz con watchdog (dead-man's switch)
+Establishes the robot control session (RTM login + RTC join, like the app), then:
+  - publishes telemetry as Home Assistant entities via MQTT Discovery
+  - receives commands from HA (speed, laser, movement) and forwards them to the robot
+  - keeps a 10 Hz movement loop with a watchdog (dead-man's switch)
 
-Autonomo: con EBO_EMAIL/EBO_PASSWORD fa login sul cloud Enabot, scopre il robot,
-ottiene i token Agora e li rinnova da solo prima della scadenza (~24h). Niente
-emulatore, niente session.json. Vedi docs/STATO.md.
+Autonomous: with EBO_EMAIL/EBO_PASSWORD it logs into the Enabot cloud, discovers the
+robot, gets the Agora tokens and renews them by itself before expiry (~24h). No
+emulator, no session.json. See docs/STATO.md.
 
 Config via env:
-  EBO_EMAIL, EBO_PASSWORD          credenziali Enabot dell'utente (autonomo)
-  EBO_REGION=GB                    regione dell'account
-  EBO_ROBOT_ID                     opzionale: se l'account ha più robot
+  EBO_EMAIL, EBO_PASSWORD          the user's Enabot credentials (autonomous)
+  EBO_REGION=GB                    account region
+  EBO_ROBOT_ID                     optional: if the account has more than one robot
   EBO_MQTT_HOST, EBO_MQTT_PORT=1883, EBO_MQTT_USER, EBO_MQTT_PASS
   (fallback: EBO_SESSION=/app/session.json)
 """
@@ -40,7 +39,7 @@ from agora.rtm.rtm_base import (
     RtmChannelType, RtmMessageType, IRtmEventHandler,
 )
 
-# ---- opcode del protocollo (vedi docs/PROTOCOLLO.md) ----
+# ---- protocol opcodes (see docs/PROTOCOLLO.md) ----
 OP_HANDSHAKE = 101003
 OP_HEARTBEAT = 101005
 OP_GET_SETTINGS = 101027
@@ -61,7 +60,7 @@ def log(*a):
 
 class Bridge:
     def __init__(self, session, mqtt_conf, provider=None, robot_id=None):
-        self.provider = provider        # callable -> session dict fresca (login/refresh)
+        self.provider = provider        # callable -> fresh session dict (login/refresh)
         self.robot_id = robot_id
         self.s = session
         self.account = self.s["rtm_user"].rsplit("_", 1)[-1]
@@ -71,7 +70,7 @@ class Bridge:
         self.info = {}
         self.rtc_state = None
 
-        # vettore di movimento corrente + watchdog
+        # current movement vector + watchdog
         self.vec = {"lx": 0, "ly": 0, "rx": 0, "ry": 0, "buttons": 0}
         self.vec_deadline = 0.0
         self.lock = threading.Lock()
@@ -90,18 +89,18 @@ class Bridge:
         class RtcObs(IRTCConnectionObserver):
             def on_connected(o, conn, info, reason):
                 self.rtc_state = "connected"
-                log("[RTC] connesso")
+                log("[RTC] connected")
 
             def on_disconnected(o, conn, info, reason):
                 self.rtc_state = "disconnected"
-                log("[RTC] disconnesso")
+                log("[RTC] disconnected")
 
             def on_connection_failure(o, conn, info, reason):
                 self.rtc_state = "failed"
-                log("[RTC] connessione fallita:", reason)
+                log("[RTC] connection failed:", reason)
 
             def on_user_joined(o, conn, uid):
-                log("[RTC] robot presente:", uid)
+                log("[RTC] robot present:", uid)
 
         bridge = self
 
@@ -118,10 +117,10 @@ class Bridge:
         ))
         r, _ = self.rtm.login(s["rtm_token"])
         if r != 0:
-            raise RuntimeError("login RTM fallito: %s" % self.rtm.get_error_reason(r))
+            raise RuntimeError("RTM login failed: %s" % self.rtm.get_error_reason(r))
         self.rtm.subscribe(s["robot_rtm"],
                            SubscribeOptions(with_message=True, with_presence=True))
-        log("[RTM] login e subscribe ok")
+        log("[RTM] login and subscribe ok")
 
         svc = AgoraService()
         scfg = AgoraServiceConfig()
@@ -140,7 +139,7 @@ class Bridge:
             if self.rtc_state:
                 break
             time.sleep(0.5)
-        log("[RTC] stato:", self.rtc_state)
+        log("[RTC] state:", self.rtc_state)
 
     def _opts(self):
         return PublishOptions(
@@ -157,7 +156,7 @@ class Bridge:
         payload = json.dumps(msg, separators=(",", ":")).encode()
         r, _ = self.rtm.publish(self.s["robot_rtm"], payload, self._opts())
         if r != 0:
-            log("[!] publish %s fallita: %s" % (mid, self.rtm.get_error_reason(r)))
+            log("[!] publish %s failed: %s" % (mid, self.rtm.get_error_reason(r)))
 
     def _on_rtm(self, event):
         try:
@@ -180,10 +179,10 @@ class Bridge:
         elif mid == OP_INFO:
             self.info = data
 
-    # ---------------- loop di controllo ----------------
+    # ---------------- control loop ----------------
 
     def control_loop(self):
-        """Heartbeat 2 s + movimento 10 Hz con watchdog."""
+        """Heartbeat every 2 s + movement at 10 Hz with watchdog."""
         last_beat = 0.0
         while not self.stop.is_set():
             now = time.time()
@@ -192,7 +191,7 @@ class Bridge:
                 last_beat = now
             with self.lock:
                 v = dict(self.vec)
-                # watchdog: se il comando è scaduto, azzera (dead-man's switch)
+                # watchdog: if the command expired, zero it (dead-man's switch)
                 if self.vec_deadline and now > self.vec_deadline:
                     self.vec = {"lx": 0, "ly": 0, "rx": 0, "ry": 0, "buttons": 0}
                     self.vec_deadline = 0.0
@@ -242,7 +241,7 @@ class Bridge:
         st = "%s/state" % NODE
 
         self._disc("sensor", "battery", {
-            "name": "EBO batteria", "state_topic": st,
+            "name": "EBO battery", "state_topic": st,
             "value_template": "{{ value_json.battery }}",
             "unit_of_measurement": "%", "device_class": "battery"})
         self._disc("sensor", "wifi", {
@@ -251,11 +250,11 @@ class Bridge:
             "unit_of_measurement": "dBm", "device_class": "signal_strength",
             "entity_category": "diagnostic"})
         self._disc("binary_sensor", "charging", {
-            "name": "EBO in carica", "state_topic": st,
+            "name": "EBO charging", "state_topic": st,
             "value_template": "{{ value_json.charging }}",
             "payload_on": "true", "payload_off": "false", "device_class": "battery_charging"})
         self._disc("binary_sensor", "recording", {
-            "name": "EBO registrazione", "state_topic": st,
+            "name": "EBO recording", "state_topic": st,
             "value_template": "{{ value_json.recording }}",
             "payload_on": "true", "payload_off": "false"})
 
@@ -266,14 +265,14 @@ class Bridge:
             "payload_on": "on", "payload_off": "off",
             "state_on": "true", "state_off": "false"})
         self._disc("number", "speed", {
-            "name": "EBO velocità", "state_topic": st,
+            "name": "EBO speed", "state_topic": st,
             "value_template": "{{ value_json.speed }}",
             "command_topic": "%s/speed/set" % NODE,
             "min": 1, "max": 100, "step": 1})
 
-        # movimento: 4 pulsanti (utili anche per un agente AI via MQTT)
-        for direction, label in [("forward", "avanti"), ("back", "indietro"),
-                                 ("left", "sinistra"), ("right", "destra"),
+        # movement: 4 buttons (also handy for an AI agent via MQTT)
+        for direction, label in [("forward", "forward"), ("back", "back"),
+                                 ("left", "left"), ("right", "right"),
                                  ("stop", "stop")]:
             self._disc("button", "move_%s" % direction, {
                 "name": "EBO %s" % label,
@@ -308,7 +307,7 @@ class Bridge:
                     lx, ly, rx = mapping[d]
                     self.set_move(lx, ly, rx, hold=0.8)
         except Exception as e:
-            log("[MQTT] errore comando %s: %s" % (topic, e))
+            log("[MQTT] command error %s: %s" % (topic, e))
 
     def _publish_telemetry(self):
         t = self.telemetry
@@ -331,7 +330,7 @@ class Bridge:
     # ---------------- avvio ----------------
 
     def _token_age_ok(self):
-        # RTC scade ~24h: rinnoviamo con margine (ogni 20h)
+        # RTC expires ~24h: renew with margin (every 20h)
         return (time.time() - self.s.get("captured_at", 0)) < 20 * 3600
 
     def refresh_session(self):
@@ -341,9 +340,9 @@ class Bridge:
             fresh = self.provider()
             if fresh:
                 self.s = fresh
-                log("[*] sessione Agora rinnovata (auto)")
+                log("[*] Agora session renewed (auto)")
         except Exception as e:
-            log("[!] refresh sessione fallito:", e)
+            log("[!] session refresh failed:", e)
 
     def run(self):
         self.connect_agora()
@@ -358,7 +357,7 @@ class Bridge:
                 time.sleep(30)
                 if self.provider and not self._token_age_ok():
                     self.refresh_session()
-                    # riaggancia Agora con i token nuovi
+                    # reconnect Agora with the new tokens
                     try:
                         self.rtc.disconnect()
                     except Exception:
@@ -374,8 +373,8 @@ class Bridge:
 
 
 def _make_provider():
-    """Se EBO_EMAIL/EBO_PASSWORD sono presenti, il provider fa login e scopre il robot,
-    rinnovando la sessione a ogni chiamata. Ritorna (provider, robot_id, first_session)."""
+    """If EBO_EMAIL/EBO_PASSWORD are set, the provider logs in and discovers the robot,
+    renewing the session on each call. Returns (provider, robot_id, first_session)."""
     email = os.environ.get("EBO_EMAIL")
     password = os.environ.get("EBO_PASSWORD")
     if not (email and password):
@@ -389,10 +388,10 @@ def _make_provider():
         c = ebo_cloud.EboCloud(host=host)
         r = c.login(email, password, region=region)
         if r.get("code") != 200:
-            raise RuntimeError("login fallito: %s" % r.get("msg"))
+            raise RuntimeError("login failed: %s" % r.get("msg"))
         robots = c.robots().get("data", {}).get("list", [])
         if not robots:
-            raise RuntimeError("nessun robot sull'account")
+            raise RuntimeError("no robot on the account")
         rid = int(want_robot) if want_robot else robots[0]["robot_info"]["robot_id"]
         return ebo_cloud.build_bridge_session_from(c, rid, app_id)
 

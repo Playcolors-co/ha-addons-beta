@@ -1,63 +1,62 @@
 # Home Assistant add-on — Enabot EBO Air 2
 
-Controlla il tuo **Enabot EBO Air 2** da Home Assistant: batteria, wifi, laser, velocità,
-movimento (avanti/indietro/sinistra/destra) e un canale "vettore" pensato per farlo
-guidare da un'automazione o da un agente AI.
+Control your **Enabot EBO Air 2** from Home Assistant: battery, wifi, laser, speed,
+movement (forward/back/left/right) and a "vector" channel meant for driving it from an
+automation or an AI agent.
 
-Funziona con le **tue credenziali Enabot** (le stesse dell'app EBO HOME): l'add-on accede
-al cloud Enabot, scopre il tuo robot, e mantiene la sessione da solo. Nessun telefono,
-nessun emulatore.
+It works with **your own Enabot credentials** (the same as the EBO HOME app): the add-on
+signs into the Enabot cloud, discovers your robot, and keeps the session alive by itself.
+No phone, no emulator.
 
-> ⚠️ **Progetto indipendente, non ufficiale.** Non affiliato a Enabot né a
-> ThroughTek/Agora. Interopera col cloud Enabot tramite reverse engineering, usando le
-> tue credenziali e il tuo dispositivo. Usalo a tuo rischio; potrebbe smettere di
-> funzionare se Enabot cambia le API.
+> ⚠️ **Independent, unofficial project.** Not affiliated with Enabot or ThroughTek/Agora.
+> It interoperates with the Enabot cloud through reverse engineering, using your own
+> credentials and device. Use at your own risk; it may break if Enabot changes their API.
 
-## Requisiti
+## Requirements
 
-- Home Assistant **OS** o **Supervised** (gli add-on richiedono il Supervisor)
-- Architettura **amd64** (l'SDK Agora è solo x86_64 — es. HAOS come VM su Proxmox/NUC ✓)
-- Un broker **MQTT** in HA (add-on *Mosquitto broker*) e l'integrazione **MQTT** attiva
+- Home Assistant **OS** or **Supervised** (add-ons require the Supervisor)
+- **amd64** architecture (the Agora SDK is x86_64 only — e.g. HAOS as a VM on Proxmox/NUC ✓)
+- An **MQTT** broker in HA (the *Mosquitto broker* add-on) and the **MQTT** integration enabled
 
-## Installazione
+## Installation
 
-1. **Impostazioni → Add-on → Store → ⋮ (in alto a destra) → Repository**
-2. Incolla l'URL di questo repo:
+1. **Settings → Add-ons → Add-on Store → ⋮ (top right) → Repositories**
+2. Paste this repository URL:
    ```
    https://github.com/Playcolors-co/ha-ebo-air2
    ```
-3. Trova **EBO Air 2** nello store e installa.
-4. Nella scheda **Configurazione** dell'add-on inserisci:
-   - `email` / `password` — le tue credenziali Enabot
-   - `region` — la regione del tuo account (es. `GB`, `US`, `EU`)
-   - `host` — lascia il default se sei in Europa; utenti US/altre regioni potrebbero
-     doverlo cambiare (es. `ebox-us.enabotserverintl.com`)
-   - `robot_id` — lascia `0`: viene scoperto in automatico (imposta un valore solo se hai
-     più robot sull'account)
-5. **Avvia** l'add-on. Le entità compaiono in Home Assistant via MQTT Discovery, sotto il
-   dispositivo **EBO Air 2**.
+3. Find **EBO Air 2** in the store and install it.
+4. In the add-on's **Configuration** tab set:
+   - `email` / `password` — your Enabot credentials
+   - `region` — your account region (e.g. `GB`, `US`, `EU`)
+   - `host` — keep the default if you are in Europe; US/other regions may need to change it
+     (e.g. `ebox-us.enabotserverintl.com`)
+   - `robot_id` — leave `0`: it is discovered automatically (set a value only if you have
+     more than one robot on the account)
+5. **Start** the add-on. The entities appear in Home Assistant via MQTT Discovery, under the
+   **EBO Air 2** device.
 
-## Entità
+## Entities
 
-| entità | tipo |
+| entity | type |
 |--------|------|
-| batteria, wifi, spazio SD | sensor |
-| in carica, registrazione | binary_sensor |
+| battery, wifi, SD space | sensor |
+| charging, recording | binary_sensor |
 | laser | switch |
-| velocità (1–100) | number |
-| avanti / indietro / sinistra / destra / stop | button |
+| speed (1–100) | number |
+| forward / back / left / right / stop | button |
 
-Più il topic MQTT `ebo_air2/move/vector` che accetta `{"ly":-50,"rx":0,"hold":1.0}` per
-un controllo analogico continuo (utile per automazioni o AI).
+Plus the MQTT topic `ebo_air2/move/vector` which accepts `{"ly":-50,"rx":0,"hold":1.0}`
+for continuous analog control (useful for automations or AI).
 
-## Come funziona / dettagli tecnici
+## How it works / technical notes
 
-Il robot parla col cloud via **Agora RTM** (comandi/telemetria, JSON) + **RTC** (presenza).
-L'add-on replica il flusso dell'app: login cifrato → sessione Agora → controllo. Il
-movimento è ritrasmesso a 10 Hz con un **watchdog** (se l'add-on si ferma, il robot si
-ferma). Dettagli in [DOCS.md](ebo_air2/DOCS.md).
+The robot talks to the cloud over **Agora RTM** (commands/telemetry, JSON) + **RTC**
+(presence). The add-on replicates the app flow: encrypted login → Agora session → control.
+Movement is retransmitted at 10 Hz with a **watchdog** (if the add-on stops, the robot
+stops). Details in [DOCS.md](ebo_air2/DOCS.md).
 
-## Licenza
+## License
 
-Codice originale sotto **MIT** (vedi [LICENSE](LICENSE)). Nessun componente proprietario
-Enabot/ThroughTek è incluso o ridistribuito.
+Original code under **MIT** (see [LICENSE](LICENSE)). No proprietary Enabot/ThroughTek
+component is included or redistributed.

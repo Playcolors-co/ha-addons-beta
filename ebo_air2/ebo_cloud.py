@@ -1,13 +1,13 @@
 """
-ebo_cloud.py — client autonomo del cloud Enabot (ecp/ebox), pura libreria Python.
+ebo_cloud.py — standalone Enabot cloud (ecp/ebox) client, pure Python library.
 
-Ricostruito per reverse engineering. Firma le richieste con ebo_sign (x-ebo-sign v2,
-verificato) e autentica con un cookie `sessionid` (da login email+password).
+Reconstructed via reverse engineering. Signs requests with ebo_sign (x-ebo-sign v2,
+verified) and authenticates with a `sessionid` cookie (from email+password login).
 
-Endpoint noti (host regionale, es. ebox-eu.enabotserverintl.com):
-  POST /api/v1/users/login        {email, password}         -> Set-Cookie: sessionid   [TODO: confermare path/campi]
-  GET  /api/v1/ebox/robots/robot                             -> lista robot (robot_id, agora_info, ...)
-  POST /api/v1/ebox/robots/session {robot_id}                -> sessione Agora (app_rtc_token, app_rtm_token, rtc_channel, sid)
+Known endpoints (regional host, e.g. ebox-eu.enabotserverintl.com):
+  POST /api/v2/users/login         {encrypted}               -> Set-Cookie: sessionid
+  GET  /api/v1/ebox/robots/robot                             -> robot list (robot_id, agora_info, ...)
+  POST /api/v1/ebox/robots/session {robot_id}                -> Agora session (app_rtc_token, app_rtm_token, rtc_channel, sid)
 """
 import json
 import http.cookiejar
@@ -17,7 +17,7 @@ import base64, os as _os, secrets as _secrets
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import ebo_sign
 
-# chiave AES-128-GCM del payload di login (costante app, estratta via hook su Cipher)
+# AES-128-GCM key for the login payload (app-level constant, extracted via a Cipher hook)
 _PAYLOAD_KEY = (_os.environ.get("EBO_PAYLOAD_KEY", "&1V@!H8*82hi4gzH")).encode()
 
 def _enc(obj):
@@ -52,7 +52,7 @@ class EboCloud:
             req.add_header(k, v)
         with self.opener.open(req, timeout=15) as r:
             data = json.loads(r.read())
-        # aggiorna sessionid da eventuale Set-Cookie
+        # update sessionid from any Set-Cookie
         for c in self.cj:
             if c.name == "sessionid":
                 self._sessionid = c.value
@@ -60,8 +60,8 @@ class EboCloud:
 
     # --- API ---
     def login(self, email, password, region="GB", device_id=None, app_token=""):
-        """Login email+password. Il payload è cifrato AES-128-GCM (e_ver 1.0).
-        Imposta il cookie sessionid dalla risposta."""
+        """Email+password login. The payload is AES-128-GCM encrypted (e_ver 1.0).
+        Sets the sessionid cookie from the response."""
         device_id = device_id or ("Android" + _secrets.token_urlsafe(16))
         payload = {
             "app_token": app_token, "app_kind": "Android", "language": "en",
@@ -70,7 +70,7 @@ class EboCloud:
         }
         body_obj = {"app_type": 2, "data": _enc(payload), "e_ver": "1.0"}
         out = self._req("POST", "/api/v2/users/login", body_obj=body_obj)
-        # la risposta è cifrata; decifrala per leggere esito
+        # the response is encrypted; decrypt it to read the outcome
         if isinstance(out.get("data"), str):
             out = {"app_type": out.get("app_type"), **_dec(out["data"])}
         return out
@@ -79,7 +79,7 @@ class EboCloud:
         return self._req("GET", "/api/v1/ebox/robots/robot")
 
     def robot_session(self, robot_id: int):
-        """Restituisce la sessione Agora fresca per il robot."""
+        """Return a fresh Agora session for the robot."""
         return self._req("POST", "/api/v1/ebox/robots/session", body_obj={"robot_id": robot_id})
 
     @property
@@ -89,7 +89,7 @@ class EboCloud:
 
 def build_bridge_session(sessionid: str, robot_id: int, app_id: str,
                          host="ebox-eu.enabotserverintl.com") -> dict:
-    """Chiama il cloud e produce il dict session.json che il bridge si aspetta."""
+    """Call the cloud and produce the session.json dict the bridge expects."""
     c = EboCloud(host=host, sessionid=sessionid)
     d = c.robot_session(robot_id)["data"]
     import time
@@ -108,7 +108,7 @@ def build_bridge_session(sessionid: str, robot_id: int, app_id: str,
 
 
 def build_bridge_session_from(client: "EboCloud", robot_id: int, app_id: str) -> dict:
-    """Come build_bridge_session ma con un client EboCloud già autenticato."""
+    """Like build_bridge_session but with an already-authenticated EboCloud client."""
     import time
     d = client.robot_session(robot_id)["data"]
     return {

@@ -1,27 +1,27 @@
-# EBO Air 2 — documentazione
+# EBO Air 2 — documentation
 
-## Configurazione
+## Configuration
 
-| opzione | descrizione |
-|---------|-------------|
-| `email` | email del tuo account Enabot |
-| `password` | password Enabot (memorizzata solo qui, in HA) |
-| `region` | regione dell'account (es. `GB`, `US`, `EU`) |
-| `host` | endpoint cloud regionale. Default EU; US ≈ `ebox-us.enabotserverintl.com` |
-| `robot_id` | `0` = scoperta automatica. Imposta un id solo con più robot |
+| option | description |
+|--------|-------------|
+| `email` | your Enabot account email |
+| `password` | Enabot password (stored only here, in HA) |
+| `region` | account region (e.g. `GB`, `US`, `EU`) |
+| `host` | regional cloud endpoint. Default is EU; US ≈ `ebox-us.enabotserverintl.com` |
+| `robot_id` | `0` = auto-discovery. Set an id only if you have more than one robot |
 
-Le credenziali restano nella configurazione dell'add-on (in HA) e vengono inviate solo ai
-server Enabot, esattamente come fa l'app ufficiale.
+Your credentials stay in the add-on configuration (in HA) and are sent only to Enabot's
+servers, exactly like the official app does.
 
 ## MQTT
 
-L'add-on richiede il servizio `mqtt` del Supervisor: prende in automatico host, porta e
-credenziali del broker di Home Assistant. Assicurati di avere l'add-on *Mosquitto broker*
-e l'integrazione MQTT attivi.
+The add-on requests the Supervisor `mqtt` service: it automatically picks up host, port and
+credentials of the Home Assistant broker. Make sure the *Mosquitto broker* add-on and the
+MQTT integration are enabled.
 
-## Movimento da automazioni / AI
+## Driving from automations / AI
 
-Oltre ai pulsanti, puoi pubblicare un vettore analogico:
+Besides the buttons, you can publish an analog vector:
 
 ```yaml
 service: mqtt.publish
@@ -30,24 +30,24 @@ data:
   payload: '{"ly":-50,"rx":20,"hold":1.5}'
 ```
 
-- `ly` < 0 = avanti, > 0 = indietro
-- `rx` = rotazione (< 0 sinistra, > 0 destra)
-- `hold` = secondi di durata; scaduto il tempo il robot si ferma (watchdog)
+- `ly` < 0 = forward, > 0 = back
+- `rx` = rotation (< 0 left, > 0 right)
+- `hold` = duration in seconds; when it expires the robot stops (watchdog)
 
-Scala dei valori ~±100. Il vettore va "tenuto": l'add-on lo ritrasmette a 10 Hz finché non
-scade `hold` o arriva un nuovo comando.
+Value scale is ~±100. The vector must be "held": the add-on retransmits it at 10 Hz until
+`hold` expires or a new command arrives.
 
-## Limiti noti
+## Known limitations
 
-- **Solo amd64** (SDK Agora x86_64).
-- **Video non incluso** (solo controllo + telemetria).
-- Un solo client di controllo alla volta: mentre l'add-on è attivo, l'app EBO HOME sullo
-  stesso account potrebbe venire disconnessa dal controllo.
-- Dipende dalle API cloud di Enabot: un loro cambiamento può richiedere un aggiornamento.
+- **amd64 only** (Agora SDK is x86_64).
+- **Video not included** (control + telemetry only).
+- One control client at a time: while the add-on is active, the EBO HOME app on the same
+  account may be disconnected from control.
+- Depends on Enabot's cloud API: a change on their side may require an update.
 
-## Risoluzione problemi
+## Troubleshooting
 
-- **"login fallito"**: verifica email/password e la `region`/`host` corretti.
-- **Nessuna entità in HA**: controlla che MQTT (Mosquitto + integrazione) sia attivo.
-- **Il robot non risponde ai comandi**: assicurati che nessun'altra sessione (app) stia
-  controllando il robot nello stesso momento.
+- **"login failed"**: check email/password and the correct `region`/`host`.
+- **No entities in HA**: make sure MQTT (Mosquitto + integration) is running.
+- **Robot does not respond to commands**: make sure no other session (the app) is
+  controlling the robot at the same time.
