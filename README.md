@@ -46,6 +46,8 @@ No phone, no emulator.
 | speed (1–100) | number |
 | forward / back / left / right / stop | button |
 
+A **camera** stream over RTSP (`rtsp://<HA-IP>:8554/ebo`, add it as a *Generic Camera* — see DOCS).
+
 Plus the MQTT topic `ebo_air2/move/vector` which accepts `{"ly":-50,"rx":0,"hold":1.0}`
 for continuous analog control (useful for automations or AI).
 

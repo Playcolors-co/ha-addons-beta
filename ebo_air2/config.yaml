@@ -1,5 +1,5 @@
 name: EBO Air 2
-version: "0.1.2"
+version: "0.2.0"
 slug: ebo_air2
 description: Control and telemetry for the Enabot EBO Air 2 in Home Assistant (via Enabot cloud)
 url: https://github.com/Playcolors-co/ha-ebo-air2
@@ -13,6 +13,10 @@ init: false
 # Request the Supervisor MQTT service: the broker credentials are provided automatically.
 services:
   - mqtt:need
+ports:
+  8554/tcp: 8554
+ports_description:
+  8554/tcp: RTSP video stream (Generic Camera)
 # Options exposed in the add-on UI
 options:
   email: ""
@@ -20,9 +24,11 @@ options:
   region: "GB"
   host: "ebox-eu.enabotserverintl.com"
   robot_id: 0
+  video: true
 schema:
   email: str
   password: password
   region: str
   host: str?
   robot_id: int?
+  video: bool?

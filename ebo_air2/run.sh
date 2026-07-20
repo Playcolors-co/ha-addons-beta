@@ -9,6 +9,7 @@ export EBO_EMAIL="$(jq -r '.email // empty' "$OPTS")"
 export EBO_PASSWORD="$(jq -r '.password // empty' "$OPTS")"
 export EBO_REGION="$(jq -r '.region // "GB"' "$OPTS")"
 export EBO_HOST="$(jq -r '.host // "ebox-eu.enabotserverintl.com"' "$OPTS")"
+export EBO_VIDEO="$(jq -r 'if .video==false then "0" else "1" end' "$OPTS")"
 ROBOT_ID="$(jq -r '.robot_id // 0' "$OPTS")"
 [ "$ROBOT_ID" != "0" ] && export EBO_ROBOT_ID="$ROBOT_ID"
 

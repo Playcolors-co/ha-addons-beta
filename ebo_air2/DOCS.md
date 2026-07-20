@@ -9,6 +9,7 @@
 | `region` | account region (e.g. `GB`, `US`, `EU`) |
 | `host` | regional cloud endpoint. Default is EU; US ≈ `ebox-us.enabotserverintl.com` |
 | `robot_id` | `0` = auto-discovery. Set an id only if you have more than one robot |
+| `video` | `true` = expose the camera over RTSP (default). `false` to disable |
 
 Your credentials stay in the add-on configuration (in HA) and are sent only to Enabot's
 servers, exactly like the official app does.
@@ -36,6 +37,22 @@ data:
 
 Value scale is ~±100. The vector must be "held": the add-on retransmits it at 10 Hz until
 `hold` expires or a new command arrives.
+
+## Video (camera)
+
+With `video: true` (default) the add-on subscribes to the robot's Agora video stream and
+republishes it as **RTSP** on port **8554**. To see it in Home Assistant:
+
+1. **Settings → Devices & Services → + Add Integration → Generic Camera**
+2. Stream URL:
+   ```
+   rtsp://<HOME_ASSISTANT_IP>:8554/ebo
+   ```
+   (use the IP of the machine running HA; the add-on exposes port 8554 on the host)
+3. Leave the rest at defaults → Submit.
+
+The stream is passed through without transcoding (`-c copy`), so CPU usage is low. Check the
+add-on log for `[video] N frames received` to confirm the robot is publishing video.
 
 ## Known limitations
 

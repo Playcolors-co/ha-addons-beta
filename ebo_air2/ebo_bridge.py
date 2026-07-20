@@ -80,6 +80,9 @@ class Bridge:
         self.rtc = None
         self.mqtt = None
         self.mqtt_conf = mqtt_conf
+        self.video = None
+        self.video_enabled = os.environ.get("EBO_VIDEO", "1") == "1"
+        self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
 
     # ---------------- Agora ----------------
 
@@ -127,7 +130,8 @@ class Bridge:
         scfg.appid = s["app_id"]
         svc.initialize(scfg)
         ccfg = RTCConnConfig(
-            auto_subscribe_audio=0, auto_subscribe_video=0,
+            auto_subscribe_audio=0,
+            auto_subscribe_video=1 if self.video_enabled else 0,
             client_role_type=ClientRoleType.CLIENT_ROLE_BROADCASTER,
             channel_profile=ChannelProfileType.CHANNEL_PROFILE_LIVE_BROADCASTING,
         )
@@ -140,6 +144,29 @@ class Bridge:
                 break
             time.sleep(0.5)
         log("[RTC] state:", self.rtc_state)
+
+        if self.video_enabled:
+            self._start_video()
+
+    def _start_video(self):
+        """Subscribe to the robot's video and republish it as RTSP."""
+        try:
+            if self.video:            # on reconnect, tear down the old pipeline first
+                self.video.stop()
+                self.video = None
+                time.sleep(1)
+            import ebo_video
+            from agora.rtc.agora_base import VideoSubscriptionOptions, VideoStreamType
+            self.video = ebo_video.VideoPipeline(rtsp_port=self.rtsp_port)
+            lu = self.rtc.get_local_user()
+            lu._register_video_encoded_frame_observer(self.video)
+            opts = VideoSubscriptionOptions(
+                type=VideoStreamType.VIDEO_STREAM_HIGH, encodedFrameOnly=True)
+            # only the robot is in the channel, so subscribe to all remote video
+            lu.subscribe_all_video(opts)
+            log("[video] subscribed to robot video; RTSP on :%d/ebo" % self.rtsp_port)
+        except Exception as e:
+            log("[video] setup failed:", e)
 
     def _opts(self):
         return PublishOptions(
