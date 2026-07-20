@@ -170,14 +170,41 @@ class Bridge:
                 time.sleep(1)
             import ebo_video
             from agora.rtc.agora_base import VideoSubscriptionOptions, VideoStreamType
+            from agora.rtc.local_user_observer import IRTCLocalUserObserver
             self.video = ebo_video.VideoPipeline(rtsp_port=self.rtsp_port)
             lu = self.rtc.get_local_user()
+
+            # diagnostics: tell us in the log exactly what the video track does
+            bridge = self
+
+            class VidObs(IRTCLocalUserObserver):
+                def on_user_video_track_subscribed(o, l, uid, info, track):
+                    log("[video] track subscribed from %s (codec %s)" % (
+                        uid, getattr(info, "codec_type", "?")))
+                def on_first_remote_video_frame(o, l, uid, w, h, e):
+                    log("[video] first remote frame %sx%s from %s" % (w, h, uid))
+            lu._register_local_user_observer(VidObs())
+
             lu._register_video_encoded_frame_observer(self.video)
             opts = VideoSubscriptionOptions(
                 type=VideoStreamType.VIDEO_STREAM_HIGH, encodedFrameOnly=True)
-            # only the robot is in the channel, so subscribe to all remote video
-            lu.subscribe_all_video(opts)
+            lu.subscribe_all_video(opts)   # only the robot is in the channel
             log("[video] subscribed to robot video; RTSP on :%d/ebo" % self.rtsp_port)
+
+            # the server SDK doesn't auto-request a keyframe: ask the robot for one
+            # repeatedly until frames start flowing (then occasionally to recover).
+            robot_uid = str(self.s.get("robot_rtc_uid") or "")
+
+            def keyframe_loop():
+                while not self.stop.is_set() and self.video:
+                    got = self.video.frames
+                    try:
+                        self.rtc.send_intra_request(robot_uid)
+                    except Exception:
+                        pass
+                    # fast while no frames yet, slow once streaming
+                    self.stop.wait(1 if got == 0 else 8)
+            threading.Thread(target=keyframe_loop, daemon=True).start()
         except Exception as e:
             log("[video] setup failed:", e)
 
