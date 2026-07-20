@@ -1,4 +1,4 @@
-ARG BUILD_FROM
+ARG BUILD_FROM=docker.io/library/python:3.11-slim
 FROM ${BUILD_FROM}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
