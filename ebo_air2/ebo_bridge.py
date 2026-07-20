@@ -18,6 +18,8 @@ Config via env:
   EBO_MQTT_HOST, EBO_MQTT_PORT=1883, EBO_MQTT_USER, EBO_MQTT_PASS
   (fallback: EBO_SESSION=/app/session.json)
 """
+from ebo_log import log          # MUST be first: silences the Agora SDK's stdout noise
+
 import json
 import os
 import sys
@@ -39,6 +41,21 @@ from agora.rtm.rtm_base import (
     RtmChannelType, RtmMessageType, IRtmEventHandler,
 )
 
+# The Agora SDK's capabilities callback crashes on a None value (benign, "Exception
+# ignored"). Guard it so it doesn't spam a traceback on every connect.
+try:
+    from agora.rtc import rtc_connection as _rc
+    _orig_caps = _rc.RTCConnection._on_capabilities_changed
+
+    def _safe_caps(self, caps_list):
+        try:
+            return _orig_caps(self, caps_list)
+        except TypeError:
+            return
+    _rc.RTCConnection._on_capabilities_changed = _safe_caps
+except Exception:
+    pass
+
 # ---- protocol opcodes (see docs/PROTOCOLLO.md) ----
 OP_HANDSHAKE = 101003
 OP_HEARTBEAT = 101005
@@ -52,10 +69,6 @@ OP_LASER = 103051
 
 DISCOVERY_PREFIX = "homeassistant"
 NODE = "ebo_air2"
-
-
-def log(*a):
-    print(time.strftime("%H:%M:%S"), *a, flush=True)
 
 
 class Bridge:
@@ -209,23 +222,27 @@ class Bridge:
     # ---------------- control loop ----------------
 
     def control_loop(self):
-        """Heartbeat every 2 s + movement at 10 Hz with watchdog."""
+        """Heartbeat every 2 s; movement at 10 Hz only while there's an active vector."""
         last_beat = 0.0
+        was_moving = False
         while not self.stop.is_set():
             now = time.time()
             if now - last_beat >= 2:
                 self.send(OP_HEARTBEAT, {"state": 0})
                 last_beat = now
             with self.lock:
-                v = dict(self.vec)
                 # watchdog: if the command expired, zero it (dead-man's switch)
                 if self.vec_deadline and now > self.vec_deadline:
                     self.vec = {"lx": 0, "ly": 0, "rx": 0, "ry": 0, "buttons": 0}
                     self.vec_deadline = 0.0
-                    v = dict(self.vec)
+                v = dict(self.vec)
                 moving = any(v[k] for k in ("lx", "ly", "rx", "ry"))
-            if moving or (self.vec_deadline == 0 and now - last_beat < 0.15):
-                self.send(OP_MOVE, v)
+            if moving:
+                self.send(OP_MOVE, v)          # stream the vector at 10 Hz
+                was_moving = True
+            elif was_moving:
+                self.send(OP_MOVE, v)          # one final zero = stop
+                was_moving = False
             time.sleep(0.1)
 
     def set_move(self, lx=0, ly=0, rx=0, ry=0, hold=0.6):
@@ -246,7 +263,18 @@ class Bridge:
         c.on_connect = self._on_mqtt_connect
         c.on_message = self._on_mqtt_message
         c.will_set("%s/status" % NODE, "offline", retain=True)
-        c.connect(self.mqtt_conf["host"], self.mqtt_conf["port"], 60)
+        # the broker (core-mosquitto) may not be ready yet at boot: retry a bit
+        for attempt in range(12):
+            try:
+                c.connect(self.mqtt_conf["host"], self.mqtt_conf["port"], 60)
+                break
+            except OSError as e:
+                if attempt == 0:
+                    log("[MQTT] broker not ready, retrying:", e)
+                time.sleep(5)
+        else:
+            raise RuntimeError("MQTT broker unreachable at %s:%s" % (
+                self.mqtt_conf["host"], self.mqtt_conf["port"]))
         c.loop_start()
         self.mqtt = c
 
@@ -341,6 +369,8 @@ class Bridge:
             log("[MQTT] command error %s: %s" % (topic, e))
 
     def _publish_telemetry(self):
+        if not self.mqtt:        # telemetry can arrive before MQTT is up
+            return
         t = self.telemetry
         b = t.get("battery", {})
         stt = t.get("status", {})
@@ -355,7 +385,7 @@ class Bridge:
         self.mqtt.publish("%s/state" % NODE, json.dumps(payload), retain=True)
 
     def _publish_settings(self):
-        # unisce moveSpeed nello stato
+        # merges moveSpeed into the state
         self._publish_telemetry()
 
     # ---------------- avvio ----------------
@@ -376,13 +406,13 @@ class Bridge:
             log("[!] session refresh failed:", e)
 
     def run(self):
+        self.connect_mqtt()       # MQTT first so telemetry has somewhere to go
         self.connect_agora()
-        self.connect_mqtt()
         threading.Thread(target=self.control_loop, daemon=True).start()
         self.send(OP_HANDSHAKE, {"userId": self.account})
         time.sleep(1)
         self.send(OP_GET_SETTINGS)
-        log("[*] bridge attivo")
+        log("[*] bridge running")
         try:
             while not self.stop.is_set():
                 time.sleep(30)

@@ -14,9 +14,7 @@ import time
 
 from agora.rtc.video_encoded_frame_observer import IVideoEncodedFrameObserver
 
-
-def log(*a):
-    print(time.strftime("%H:%M:%S"), *a, flush=True)
+from ebo_log import log
 
 
 class VideoPipeline(IVideoEncodedFrameObserver):
