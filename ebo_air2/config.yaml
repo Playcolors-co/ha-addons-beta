@@ -8,6 +8,8 @@ arch:
   - amd64
 startup: application
 boot: auto
+# Our base is python:3.11-slim (not an HA base image with s6): disable HA init.
+init: false
 # Request the Supervisor MQTT service: the broker credentials are provided automatically.
 services:
   - mqtt:need
@@ -24,4 +26,3 @@ schema:
   region: str
   host: str?
   robot_id: int?
-image: null
