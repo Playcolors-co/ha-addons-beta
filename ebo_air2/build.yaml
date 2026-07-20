@@ -1,0 +1,7 @@
+# Base image per architettura. python:3.11-slim è Debian/glibc: necessario per l'SDK
+# Agora (le .so sono glibc, non musl/alpine).
+build_from:
+  amd64: python:3.11-slim
+labels:
+  org.opencontainers.image.title: "EBO Air 2"
+  org.opencontainers.image.source: "https://github.com/Playcolors-co/ha-ebo-air2"

@@ -1,0 +1,27 @@
+name: EBO Air 2
+version: "0.1.0"
+slug: ebo_air2
+description: Controllo e telemetria dell'Enabot EBO Air 2 in Home Assistant (via cloud Enabot)
+url: https://github.com/Playcolors-co/ha-ebo-air2
+# L'SDK Agora è compilato solo per x86_64 (glibc). HAOS su Proxmox/NUC è amd64.
+arch:
+  - amd64
+startup: application
+boot: auto
+# Chiediamo il servizio MQTT del Supervisor: le credenziali del broker arrivano da solo.
+services:
+  - mqtt:need
+# Config esposta nell'interfaccia dell'add-on
+options:
+  email: ""
+  password: ""
+  region: "GB"
+  host: "ebox-eu.enabotserverintl.com"
+  robot_id: 0
+schema:
+  email: str
+  password: password
+  region: str
+  host: str?
+  robot_id: int?
+image: null
