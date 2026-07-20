@@ -14,7 +14,7 @@ RUN set -e; \
 
 ENV LD_LIBRARY_PATH=/usr/local/lib/python3.11/site-packages/agora/agora_sdk
 WORKDIR /app
-COPY ebo_bridge.py ebo_cloud.py ebo_sign.py ebo_video.py run.sh /app/
+COPY ebo_bridge.py ebo_cloud.py ebo_sign.py ebo_video.py ebo_log.py run.sh /app/
 RUN chmod +x /app/run.sh
 
 CMD ["/app/run.sh"]
