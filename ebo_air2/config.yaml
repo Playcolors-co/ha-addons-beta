@@ -1,5 +1,5 @@
 name: EBO Air 2
-version: "0.2.3"
+version: "0.3.0"
 slug: ebo_air2
 description: Control and telemetry for the Enabot EBO Air 2 in Home Assistant (via Enabot cloud)
 url: https://github.com/Playcolors-co/ha-ebo-air2
@@ -12,9 +12,6 @@ startup: application
 boot: auto
 # Our base is python:3.11-slim (not an HA base image with s6): disable HA init.
 init: false
-# Host network: Agora media is UDP; the add-on bridge NAT can block it. On host
-# network the media (and the RTSP port 8554) are directly on the HA machine.
-host_network: true
 # Request the Supervisor MQTT service: the broker credentials are provided automatically.
 services:
   - mqtt:need
@@ -25,7 +22,7 @@ options:
   region: "GB"
   host: "ebox-eu.enabotserverintl.com"
   robot_id: 0
-  video: true
+  video: false
 schema:
   email: str
   password: password

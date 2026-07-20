@@ -38,10 +38,16 @@ data:
 Value scale is ~±100. The vector must be "held": the add-on retransmits it at 10 Hz until
 `hold` expires or a new command arrives.
 
-## Video (camera)
+## Video (camera) — not working yet
 
-With `video: true` (default) the add-on subscribes to the robot's Agora video stream and
-republishes it as **RTSP** on port **8554**. To see it in Home Assistant:
+> **Status:** the robot streams **H.265** over Agora, and the Agora *Python server SDK*
+> used here has no video decoder / no H.265 support, so video frames are not delivered
+> (control and telemetry are unaffected and work fully). Video is **off by default**
+> (`video: false`). Enabling it starts the RTSP machinery but the stream stays empty.
+> A working camera would require a different path (TUTK/Kalay over LAN) — future work.
+
+With `video: true` the add-on subscribes to the robot's Agora video stream and republishes
+it as **RTSP** on port **8554**. To see it in Home Assistant:
 
 1. **Settings → Devices & Services → + Add Integration → Generic Camera**
 2. Stream URL:
