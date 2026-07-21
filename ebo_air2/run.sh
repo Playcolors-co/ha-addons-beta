@@ -35,6 +35,14 @@ fi
 : "${EBO_MQTT_PORT:=1883}"
 export EBO_MQTT_HOST EBO_MQTT_PORT
 
+# Best-effort Home Assistant host IP, to show the exact RTSP camera URL in HA.
+if [ -n "$SUPERVISOR_TOKEN" ]; then
+  EBO_HOST_IP="$(curl -sf -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/network/info 2>/dev/null \
+    | jq -r '[.data.interfaces[]? | select(.enabled==true) | .ipv4.address[]?] | map(sub("/.*";"")) | first // empty' 2>/dev/null)"
+  export EBO_HOST_IP
+  [ -n "$EBO_HOST_IP" ] && echo "[add-on] host IP for camera URL: ${EBO_HOST_IP}"
+fi
+
 echo "[add-on] starting Enabot integration bridge (region ${EBO_REGION})"
 
 # Clean shutdown: when the Supervisor stops the add-on it sends SIGTERM. Forward it
