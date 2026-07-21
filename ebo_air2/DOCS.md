@@ -1,4 +1,13 @@
-# EBO Air 2 — documentation
+# Enabot integration — documentation
+
+> ℹ️ **Tested devices.** So far this add-on has been tested **only on the Enabot EBO Air 2**.
+> It may work with other EBO models that talk to the same Enabot cloud (EBO SE 2, Max, EBO X…),
+> but that is **unverified** — if you try it on another model, feedback and issues are very
+> welcome.
+>
+> ⚠️ **Independent, unofficial project.** Not affiliated with Enabot or ThroughTek/Agora. It
+> interoperates with the Enabot cloud through reverse engineering, using **your own**
+> credentials and device. Use at your own risk; it may break if Enabot changes their API.
 
 ## Configuration
 
@@ -38,6 +47,28 @@ data:
 Value scale is ~±100. The vector must be "held": the add-on retransmits it at 10 Hz until
 `hold` expires or a new command arrives.
 
+## More entities (v0.4)
+
+Besides battery/wifi/charging/recording/laser/speed and the move buttons, the add-on now
+exposes: **sleep** (switch), **say** (text — the robot speaks what you type), **volume**
+(number), **return to base** / **patrol** (buttons), **AI tracking** (switch).
+
+## Full command catalog + raw channel (AI)
+
+The robot understands many more commands than there are entities. The topic **`ebo_air2/cmd`**
+accepts a raw command for an automation or an AI agent:
+
+```yaml
+service: mqtt.publish
+data:
+  topic: ebo_air2/cmd
+  payload: '{"id": 103501, "data": {"userId": "<yourUserId>", "text": "hello"}}'
+```
+
+The complete opcode catalog (movement, motion presets, voice, TTS, camera, eyes emoji,
+scheduling, system…) is in [COMANDI.md](COMANDI.md). Commands marked *(moves)* drive the
+robot — use them only when you can see it.
+
 ## Video (camera) — not working yet
 
 > **Status:** the robot streams **H.265** over Agora, and the Agora *Python server SDK*
@@ -75,3 +106,11 @@ add-on log for `[video] N frames received` to confirm the robot is publishing vi
 - **No entities in HA**: make sure MQTT (Mosquitto + integration) is running.
 - **Robot does not respond to commands**: make sure no other session (the app) is
   controlling the robot at the same time.
+
+## Support
+
+This is a free, independent project. If it's useful to you, you can support the work:
+
+[![Buy me a coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=%E2%98%95&slug=scattolacom&button_colour=FFDD00&font_colour=000000&font_family=Lato&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/scattolacom)
+
+☕ **[buymeacoffee.com/scattolacom](https://www.buymeacoffee.com/scattolacom)**

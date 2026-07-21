@@ -66,6 +66,18 @@ OP_SETTINGS = 101028
 OP_INFO = 101004
 OP_SET_SPEED = 103009
 OP_LASER = 103051
+# extra commands, reverse-engineered from the app's command builder (gb.b).
+# See docs/COMANDI.md for the full catalog. Simple, well-formed payloads only.
+OP_SAY = 103501         # text-to-speech: {"userId":..,"text":".."} — robot speaks
+OP_SLEEP = 101047       # sleep/wake: {"isSleeping": bool} — no movement
+OP_VOLUME = 102023      # {"playbackVolume": int, "isPlaybackMuted": bool}
+OP_MOVE_MODE = 103011   # {"moveMode": int}
+OP_SHOOT_MODE = 102035  # {"shootMode": int}  (photo/video)
+OP_PLAY_MOTION = 103005  # {"cycleMode": int, "moveId": int} — preset motion (MOVES)
+OP_PLAY_VOICE = 103007   # {"cycleMode": int, "voiceId": int}
+OP_AI_TRACK = 103049     # startAiTrack (MOVES) — AI subject tracking
+OP_PATROL = 103061       # startPatrol (MOVES)
+OP_DOCK = 103019         # auto-recharge / return to base (MOVES)
 
 DISCOVERY_PREFIX = "homeassistant"
 NODE = "ebo_air2"
@@ -364,11 +376,46 @@ class Bridge:
                 "name": "EBO %s" % label,
                 "command_topic": "%s/move/%s" % (NODE, direction)})
 
+        # sleep/wake — no movement, safe to toggle (optimistic switch)
+        self._disc("switch", "sleep", {
+            "name": "EBO sleep", "command_topic": "%s/sleep/set" % NODE,
+            "payload_on": "on", "payload_off": "off", "optimistic": True,
+            "icon": "mdi:sleep"})
+        # text-to-speech: type text, the robot says it (great for automations/AI)
+        self._disc("text", "say", {
+            "name": "EBO say", "command_topic": "%s/say" % NODE,
+            "state_topic": "%s/say/state" % NODE, "icon": "mdi:bullhorn"})
+        # playback volume
+        self._disc("number", "volume", {
+            "name": "EBO volume", "command_topic": "%s/volume/set" % NODE,
+            "min": 0, "max": 100, "step": 1, "optimistic": True,
+            "icon": "mdi:volume-high"})
+        # one-shot actions that DO move the robot (buttons, user/AI-initiated)
+        self._disc("button", "dock", {
+            "name": "EBO return to base", "command_topic": "%s/dock" % NODE,
+            "icon": "mdi:home-import-outline"})
+        self._disc("button", "patrol", {
+            "name": "EBO patrol", "command_topic": "%s/patrol" % NODE,
+            "icon": "mdi:map-marker-path"})
+        self._disc("switch", "ai_track", {
+            "name": "EBO AI tracking", "command_topic": "%s/ai_track/set" % NODE,
+            "payload_on": "on", "payload_off": "off", "optimistic": True,
+            "icon": "mdi:target-account"})
+
         c.subscribe("%s/laser/set" % NODE)
         c.subscribe("%s/speed/set" % NODE)
         c.subscribe("%s/move/+" % NODE)
         # canale generico per un agente: JSON {"ly":-50,"rx":0,"hold":1.0}
         c.subscribe("%s/move/vector" % NODE)
+        c.subscribe("%s/sleep/set" % NODE)
+        c.subscribe("%s/say" % NODE)
+        c.subscribe("%s/volume/set" % NODE)
+        c.subscribe("%s/dock" % NODE)
+        c.subscribe("%s/patrol" % NODE)
+        c.subscribe("%s/ai_track/set" % NODE)
+        # RAW escape hatch for an AI/automation: publish {"id":<opcode>,"data":{...}}
+        # to ebo_air2/cmd to send ANY command from the full catalog (docs/COMANDI.md).
+        c.subscribe("%s/cmd" % NODE)
 
     def _on_mqtt_message(self, c, u, msg):
         topic = msg.topic
@@ -382,6 +429,28 @@ class Bridge:
                 v = json.loads(payload)
                 self.set_move(v.get("lx", 0), v.get("ly", 0), v.get("rx", 0),
                               v.get("ry", 0), v.get("hold", 0.6))
+            elif topic.endswith("/sleep/set"):
+                self.send(OP_SLEEP, {"isSleeping": payload.lower() in ("on", "true", "1")})
+            elif topic.endswith("/say"):
+                if payload:
+                    self.send(OP_SAY, {"userId": self.account, "text": payload})
+                    self.mqtt.publish("%s/say/state" % NODE, payload)
+            elif topic.endswith("/volume/set"):
+                self.send(OP_VOLUME, {"playbackVolume": int(float(payload)),
+                                      "isPlaybackMuted": False})
+            elif topic.endswith("/dock"):
+                self.send(OP_DOCK, {})              # return to charging base
+            elif topic.endswith("/patrol"):
+                self.send(OP_PATROL, {})
+            elif topic.endswith("/ai_track/set"):
+                on = payload.lower() in ("on", "true", "1")
+                self.send(OP_AI_TRACK, {"enable": 1 if on else 0})
+            elif topic.endswith("/cmd"):
+                # raw command from an AI/automation: {"id":<opcode>,"data":{...}}
+                obj = json.loads(payload)
+                mid = int(obj["id"])
+                self.send(mid, obj.get("data"))
+                log("[MQTT] raw cmd id=%s sent" % mid)
             elif "/move/" in topic:
                 d = topic.rsplit("/", 1)[-1]
                 mag = 60
@@ -432,7 +501,44 @@ class Bridge:
         except Exception as e:
             log("[!] session refresh failed:", e)
 
+    def _install_signals(self):
+        # The Supervisor stops the add-on with SIGTERM: shut down cleanly and promptly
+        # (otherwise the container gets force-killed and HA shows an "error").
+        import signal
+
+        def _sig(signum, _frame):
+            log("[*] signal %s received, shutting down" % signum)
+            self.stop.set()
+        for s in (signal.SIGTERM, signal.SIGINT):
+            try:
+                signal.signal(s, _sig)
+            except Exception:
+                pass
+
+    def _teardown(self):
+        try:
+            if self.mqtt:
+                self.mqtt.publish("%s/status" % NODE, "offline", retain=True)
+        except Exception:
+            pass
+        try:
+            if self.video:
+                self.video.stop()
+        except Exception:
+            pass
+        try:
+            if self.rtc:
+                self.rtc.disconnect()
+        except Exception:
+            pass
+        try:
+            if self.rtm:
+                self.rtm.logout()
+        except Exception:
+            pass
+
     def run(self):
+        self._install_signals()
         self.connect_mqtt()       # MQTT first so telemetry has somewhere to go
         self.connect_agora()
         threading.Thread(target=self.control_loop, daemon=True).start()
@@ -440,9 +546,13 @@ class Bridge:
         time.sleep(1)
         self.send(OP_GET_SETTINGS)
         log("[*] bridge running")
+        last_check = time.time()
         try:
-            while not self.stop.is_set():
-                time.sleep(30)
+            # short, interruptible wait so a stop signal is honoured within ~1 s
+            while not self.stop.wait(1):
+                if time.time() - last_check < 30:
+                    continue
+                last_check = time.time()
                 if self.provider and not self._token_age_ok():
                     self.refresh_session()
                     # reconnect Agora with the new tokens
@@ -455,9 +565,9 @@ class Bridge:
         except KeyboardInterrupt:
             pass
         finally:
-            if self.mqtt:
-                self.mqtt.publish("%s/status" % NODE, "offline", retain=True)
             self.stop.set()
+            self._teardown()
+            log("[*] bridge stopped")
 
 
 def _make_provider():
@@ -506,4 +616,12 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    rc = main()
+    # The Agora SDK spins native threads that can keep the process alive after a clean
+    # shutdown; flush and hard-exit so the container actually stops (no force-kill).
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    os._exit(rc or 0)

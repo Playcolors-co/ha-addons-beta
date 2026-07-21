@@ -33,9 +33,36 @@ fi
 : "${EBO_MQTT_PORT:=1883}"
 export EBO_MQTT_HOST EBO_MQTT_PORT
 
-echo "[add-on] starting EBO Air 2 bridge (region ${EBO_REGION})"
-# retry: login/cloud can fail transiently; don't let the add-on die
-while true; do
-  python /app/ebo_bridge.py || echo "[add-on] bridge exited (rc=$?), restarting in 30s…"
-  sleep 30
+echo "[add-on] starting Enabot integration bridge (region ${EBO_REGION})"
+
+# Clean shutdown: when the Supervisor stops the add-on it sends SIGTERM. Forward it
+# to the bridge, wait for it to exit, and stop WITHOUT restarting (otherwise the
+# restart loop would sleep through the stop and get force-killed → "error").
+child=""
+stopping=0
+term() {
+  stopping=1
+  echo "[add-on] stopping…"
+  [ -n "$child" ] && kill -TERM "$child" 2>/dev/null
+  # give the bridge up to ~8s to close cleanly, then move on
+  for _ in $(seq 1 16); do
+    kill -0 "$child" 2>/dev/null || break
+    sleep 0.5
+  done
+  exit 0
+}
+trap term SIGTERM SIGINT
+
+# retry: login/cloud can fail transiently; don't let the add-on die — but stop
+# retrying the moment we've been asked to shut down.
+while [ "$stopping" -eq 0 ]; do
+  python /app/ebo_bridge.py &
+  child=$!
+  wait "$child"
+  rc=$?
+  [ "$stopping" -eq 1 ] && break
+  echo "[add-on] bridge exited (rc=${rc}), restarting in 30s…"
+  # interruptible sleep so a stop during the wait exits promptly
+  sleep 30 &
+  wait $!
 done

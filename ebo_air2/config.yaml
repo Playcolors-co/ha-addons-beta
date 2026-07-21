@@ -1,8 +1,8 @@
-name: EBO Air 2
-version: "0.3.0"
+name: Enabot integration
+version: "0.4.3"
 slug: ebo_air2
 description: Control and telemetry for the Enabot EBO Air 2 in Home Assistant (via Enabot cloud)
-url: https://github.com/Playcolors-co/ha-ebo-air2
+url: https://github.com/Playcolors-co/ha-addons
 # Reverse-engineered, unofficial, undocumented cloud API: mark as experimental.
 stage: experimental
 # The Agora SDK is built for x86_64 (glibc) only. HAOS on Proxmox/NUC is amd64.
