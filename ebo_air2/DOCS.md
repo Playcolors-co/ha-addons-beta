@@ -54,10 +54,19 @@ exposes: **sleep** (switch), **say** (text — the robot speaks what you type), 
 (number), and **return to base** (button — starts driving to the dock; only works when the
 robot is *not* already charging).
 
-> **Patrol** and **AI tracking** are intentionally *not* plain buttons: patrol needs a route
-> configured in the app (`{mode, routeId, trackTarget, voiceId}`) and AI tracking is
-> interactive (you pick the subject: `{mode, trackTarget}`). Trigger them via the raw command
-> channel below with the right payload — see [COMANDI.md](COMANDI.md).
+### Patrol
+
+- **patrol route** (select) — lists the patrol routes saved in the EBO HOME app, plus
+  `auto (no route)`. The list is fetched from the robot at start-up.
+- **start patrol** (button) — starts patrolling: with `auto (no route)` the robot does a
+  free patrol (no route needed); with a named route it follows that saved route.
+
+There is **no dedicated "stop patrol"** command in the robot's protocol — to interrupt a
+patrol, just send any movement (e.g. the *stop* button). Routes are **created in the EBO
+HOME app** (the add-on can only list and start them).
+
+> **AI tracking** stays raw-only: it is interactive (you pick the subject, `{mode,
+> trackTarget}`). Trigger it via the raw command channel below — see [COMANDI.md](COMANDI.md).
 
 ## Full command catalog + raw channel (AI)
 

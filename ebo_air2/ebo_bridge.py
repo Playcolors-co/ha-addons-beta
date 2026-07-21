@@ -76,10 +76,13 @@ OP_SHOOT_MODE = 102035  # {"shootMode": int}  (photo/video)
 OP_PLAY_MOTION = 103005  # {"cycleMode": int, "moveId": int} — preset motion (MOVES)
 OP_PLAY_VOICE = 103007   # {"cycleMode": int, "voiceId": int}
 OP_DOCK = 103043         # manual return-to-base / start charging: {"startUp": bool} (MOVES)
-# NOTE: patrol (103061) and AI tracking (103049) are NOT simple one-shot commands —
-# patrol needs a configured route {mode,routeId,trackTarget,voiceId} and AI tracking is
-# interactive (pick a subject: {mode,trackTarget}). Use the raw ebo_air2/cmd channel with
-# the right payload instead of a plain button. See COMANDI.md.
+OP_PATROL = 103061       # start patrol: {"mode","trackTarget","routeId","voiceId"} (MOVES)
+OP_GET_ROUTES = 104001   # ask the robot for the saved patrol routes
+RESP_ROUTES = 104002     # robot's reply: {"status", "list":[{id, routeName, routeFile}]}
+# patrol mode 0 = auto (no route, routeId -1); mode 1 = follow a saved route (needs routeId).
+# trackTarget is hard-coded to 7 in the app for both. AI tracking (103049) stays raw-only
+# (it's interactive: pick a subject {mode,trackTarget}) — see COMANDI.md.
+PATROL_AUTO = "auto (no route)"
 
 DISCOVERY_PREFIX = "homeassistant"
 NODE = "ebo_air2"
@@ -96,6 +99,8 @@ class Bridge:
         self.settings = {}
         self.info = {}
         self.rtc_state = None
+        self.routes = []                 # [(routeName, id)] from the robot
+        self.patrol_choice = PATROL_AUTO  # currently selected patrol route
 
         # current movement vector + watchdog
         self.vec = {"lx": 0, "ly": 0, "rx": 0, "ry": 0, "buttons": 0}
@@ -259,6 +264,12 @@ class Bridge:
             self._publish_settings()
         elif mid == OP_INFO:
             self.info = data
+        elif mid == RESP_ROUTES:
+            lst = data.get("list") or []
+            self.routes = [(r.get("routeName") or ("route %s" % r.get("id")),
+                            r.get("id")) for r in lst if r.get("id") is not None]
+            log("[patrol] %d route(s) dal robot" % len(self.routes))
+            self._publish_patrol_select()
 
     # ---------------- control loop ----------------
 
@@ -340,6 +351,35 @@ class Bridge:
         topic = "%s/%s/%s/%s/config" % (DISCOVERY_PREFIX, comp, NODE, oid)
         self.mqtt.publish(topic, "", retain=True)
 
+    def _publish_patrol_select(self):
+        """(Re)publish the patrol-route select with the routes known so far."""
+        if not self.mqtt:
+            return
+        options = [PATROL_AUTO] + [name for (name, _rid) in self.routes]
+        self._disc("select", "patrol_route", {
+            "name": "EBO patrol route",
+            "command_topic": "%s/patrol/route/set" % NODE,
+            "state_topic": "%s/patrol/route" % NODE,
+            "options": options,
+            "icon": "mdi:map-marker-path"})
+        if self.patrol_choice not in options:
+            self.patrol_choice = PATROL_AUTO
+        self.mqtt.publish("%s/patrol/route" % NODE, self.patrol_choice, retain=True)
+
+    def _start_patrol(self):
+        """Start patrol on the selected route (or auto/no-route when PATROL_AUTO)."""
+        if self.patrol_choice == PATROL_AUTO:
+            data = {"mode": 0, "trackTarget": 7, "routeId": -1, "voiceId": ""}
+        else:
+            rid = dict(self.routes).get(self.patrol_choice, -1)
+            if rid == -1:
+                log("[patrol] route sconosciuta '%s' — chiedo la lista" % self.patrol_choice)
+                self.send(OP_GET_ROUTES)
+                return
+            data = {"mode": 1, "trackTarget": 7, "routeId": rid, "voiceId": ""}
+        self.send(OP_PATROL, data)
+        log("[patrol] start '%s' -> %s" % (self.patrol_choice, data))
+
     def _on_mqtt_connect(self, c, u, flags, rc):
         log("[MQTT] connected rc=%s" % rc)
         c.publish("%s/status" % NODE, "online", retain=True)
@@ -406,6 +446,11 @@ class Bridge:
         self._disc("button", "dock", {
             "name": "EBO return to base", "command_topic": "%s/dock" % NODE,
             "icon": "mdi:home-import-outline"})
+        # patrol: pick a route (auto = no route) and start it
+        self._publish_patrol_select()
+        self._disc("button", "patrol_start", {
+            "name": "EBO start patrol", "command_topic": "%s/patrol/start" % NODE,
+            "icon": "mdi:play-circle-outline"})
 
         c.subscribe("%s/laser/set" % NODE)
         c.subscribe("%s/speed/set" % NODE)
@@ -416,6 +461,8 @@ class Bridge:
         c.subscribe("%s/say" % NODE)
         c.subscribe("%s/volume/set" % NODE)
         c.subscribe("%s/dock" % NODE)
+        c.subscribe("%s/patrol/route/set" % NODE)
+        c.subscribe("%s/patrol/start" % NODE)
         # RAW escape hatch for an AI/automation: publish {"id":<opcode>,"data":{...}}
         # to ebo_air2/cmd to send ANY command from the full catalog (docs/COMANDI.md).
         c.subscribe("%s/cmd" % NODE)
@@ -444,6 +491,11 @@ class Bridge:
             elif topic.endswith("/dock"):
                 # start returning to the charging base (no-op if already charging)
                 self.send(OP_DOCK, {"startUp": True})
+            elif topic.endswith("/patrol/route/set"):
+                self.patrol_choice = payload
+                self.mqtt.publish("%s/patrol/route" % NODE, payload, retain=True)
+            elif topic.endswith("/patrol/start"):
+                self._start_patrol()
             elif topic.endswith("/cmd"):
                 # raw command from an AI/automation: {"id":<opcode>,"data":{...}}
                 obj = json.loads(payload)
@@ -544,6 +596,7 @@ class Bridge:
         self.send(OP_HANDSHAKE, {"userId": self.account})
         time.sleep(1)
         self.send(OP_GET_SETTINGS)
+        self.send(OP_GET_ROUTES)          # populate the patrol-route select
         log("[*] bridge running")
         last_check = time.time()
         try:

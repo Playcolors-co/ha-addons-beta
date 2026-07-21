@@ -34,12 +34,16 @@ GET-style opcodes). The bridge adds the session id / timestamp automatically.
 | say (text) | 103501 | `{"userId","text"}` — robot speaks |
 | volume (number) | 102023 | `{"playbackVolume": 0..100, "isPlaybackMuted": bool}` |
 | return to base (button) | 103043 | `{"startUp": true}` **(moves)** — no-op if already charging |
+| patrol route (select) + start patrol (button) | 104001 → 104002 (list) / 103061 (start) | see below |
+
+**Patrol** — the route select is filled from the robot: request `104001`, the robot replies
+`104002` with `{"list":[{"id","routeName","routeFile"}]}`. Start with:
+`{"id":103061,"data":{"mode":0,"trackTarget":7,"routeId":-1,"voiceId":""}}` **(moves)** for a
+free patrol (no route), or `mode:1` + a real `routeId` to follow a saved route. Routes are
+created in the EBO HOME app. No dedicated stop — send any movement to interrupt.
 
 ### Not wired as entities (use the raw channel with the right payload)
 
-- **Patrol** — `{"id":103061,"data":{"mode":0,"routeId":<id>,"trackTarget":0,"voiceId":""}}`
-  **(moves)**. Needs a **route** first created in the EBO HOME app; `routeId` must match a
-  saved route (an empty/invalid id does nothing).
 - **AI tracking** — `{"id":103049,"data":{"mode":<m>,"trackTarget":<t>}}` **(moves)**. In the
   app this is interactive — you tap the subject in the live video to get `mode`/`trackTarget`.
 
