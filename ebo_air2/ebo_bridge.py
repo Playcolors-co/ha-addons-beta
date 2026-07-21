@@ -335,10 +335,20 @@ class Bridge:
         topic = "%s/%s/%s/%s/config" % (DISCOVERY_PREFIX, comp, NODE, oid)
         self.mqtt.publish(topic, json.dumps(cfg), retain=True)
 
+    def _remove_entity(self, comp, oid):
+        # publish an empty retained config to delete a previously-discovered entity
+        topic = "%s/%s/%s/%s/config" % (DISCOVERY_PREFIX, comp, NODE, oid)
+        self.mqtt.publish(topic, "", retain=True)
+
     def _on_mqtt_connect(self, c, u, flags, rc):
         log("[MQTT] connected rc=%s" % rc)
         c.publish("%s/status" % NODE, "online", retain=True)
         st = "%s/state" % NODE
+
+        # clean up entities removed in v0.4.4 (patrol / AI tracking were not real
+        # one-shot commands; they live on the raw ebo_air2/cmd channel now)
+        self._remove_entity("button", "patrol")
+        self._remove_entity("switch", "ai_track")
 
         self._disc("sensor", "battery", {
             "name": "EBO battery", "state_topic": st,
