@@ -117,6 +117,7 @@ class Bridge:
         self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
         self.robot_uid = None            # the robot's RTC uid, learned on_user_joined
         self._video_subscribed = False
+        self._encoded_mode = False       # experimental encoded subscribe (EBO_VIDEO_ENCODED)
 
     # ---------------- Agora ----------------
 
@@ -166,15 +167,19 @@ class Bridge:
         scfg = AgoraServiceConfig()
         scfg.appid = s["app_id"]
         svc.initialize(scfg)
+        # CONFIRMED: auto_subscribe_video=0 (manual encoded subscribe) SEGFAULTS this build of
+        # the Agora SDK — both subscribe_all_video and subscribe_video crash. Keep it at 1
+        # (stable). With auto=1 the SDK auto-subscribes decoded (0 frames for H.265) but does
+        # NOT crash. The encoded path can be retried by pinning a different SDK version.
+        encoded = os.environ.get("EBO_VIDEO_ENCODED", "0") == "1"
         ccfg = RTCConnConfig(
             auto_subscribe_audio=0,
-            # Experimental encoded path: no auto-subscribe. When video is on we subscribe to
-            # the robot's stream *per-uid* (subscribe_video) in encoded-only mode — avoids the
-            # subscribe_all_video crash and hands ffmpeg the raw H.265 to pass to HA.
-            auto_subscribe_video=0,
+            auto_subscribe_video=0 if (self.video_enabled and encoded)
+            else (1 if self.video_enabled else 0),
             client_role_type=ClientRoleType.CLIENT_ROLE_BROADCASTER,
             channel_profile=ChannelProfileType.CHANNEL_PROFILE_LIVE_BROADCASTING,
         )
+        self._encoded_mode = encoded
         pcfg = RtcConnectionPublishConfig(is_publish_audio=False, is_publish_video=False)
         self.rtc = svc.create_rtc_connection(ccfg, pcfg)
         self.rtc.register_observer(RtcObs())
@@ -236,8 +241,9 @@ class Bridge:
             log("[video] setup failed:", e)
 
     def _maybe_subscribe_video(self):
-        """Subscribe to the robot's video (encoded-only) once we know its uid."""
-        if not (self.video_enabled and self.video and self.robot_uid
+        """Experimental encoded subscribe (only when EBO_VIDEO_ENCODED=1); in the default
+        stable mode auto_subscribe handles it (decoded, no crash)."""
+        if not (self._encoded_mode and self.video_enabled and self.video and self.robot_uid
                 and not self._video_subscribed and self.rtc):
             return
         try:
@@ -246,7 +252,7 @@ class Bridge:
                 type=VideoStreamType.VIDEO_STREAM_HIGH, encodedFrameOnly=True)
             self.rtc.get_local_user().subscribe_video(self.robot_uid, opts)
             self._video_subscribed = True
-            log("[video] encoded subscribe to robot uid %s" % self.robot_uid)
+            log("[video] (experimental) encoded subscribe to robot uid %s" % self.robot_uid)
         except Exception as e:
             log("[video] subscribe_video failed:", e)
 

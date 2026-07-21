@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.6.1 — back to stable (encoded video confirmed crashing)
+- Attempt #1 result: the encoded-only subscribe (`auto_subscribe_video=0`) **segfaults this
+  Agora SDK build regardless of the subscribe method** (both `subscribe_all_video` and
+  `subscribe_video` crash). Reverted to the **stable** config (`auto=1`, no crash, 0 frames
+  for H.265). The experimental encoded path is now behind an env flag (`EBO_VIDEO_ENCODED=1`)
+  so it can't crash the default setup. `video: true` is safe again (RTSP up, empty).
+
 ## 0.6.0 — experimental video attempt #1
 - **Video (experimental):** try to receive the robot's **encoded H.265** by subscribing to
   its stream **per-uid** (`subscribe_video`) in encoded-only mode, instead of the

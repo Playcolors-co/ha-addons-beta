@@ -1,5 +1,5 @@
 name: Enabot integration
-version: "0.6.0"
+version: "0.6.1"
 slug: ebo_air2
 description: Control and telemetry for the Enabot EBO Air 2 in Home Assistant (via Enabot cloud)
 url: https://github.com/Playcolors-co/ha-addons
