@@ -115,6 +115,8 @@ class Bridge:
         self.video = None
         self.video_enabled = os.environ.get("EBO_VIDEO", "1") == "1"
         self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
+        self.robot_uid = None            # the robot's RTC uid, learned on_user_joined
+        self._video_subscribed = False
 
     # ---------------- Agora ----------------
 
@@ -135,7 +137,10 @@ class Bridge:
                 log("[RTC] connection failed:", reason)
 
             def on_user_joined(o, conn, uid):
+                self.robot_uid = str(uid)
                 log("[RTC] robot present:", uid)
+                # robot may join after _start_video ran: (re)try the encoded subscribe
+                self._maybe_subscribe_video()
 
         bridge = self
 
@@ -163,10 +168,10 @@ class Bridge:
         svc.initialize(scfg)
         ccfg = RTCConnConfig(
             auto_subscribe_audio=0,
-            # NOTE: auto_subscribe_video=0 + manual encoded subscribe SEGFAULTS the native
-            # Agora SDK on this build — keep it at 1 (stable). The encoded observer still
-            # receives frames when the SDK delivers them. See _start_video().
-            auto_subscribe_video=1 if self.video_enabled else 0,
+            # Experimental encoded path: no auto-subscribe. When video is on we subscribe to
+            # the robot's stream *per-uid* (subscribe_video) in encoded-only mode — avoids the
+            # subscribe_all_video crash and hands ffmpeg the raw H.265 to pass to HA.
+            auto_subscribe_video=0,
             client_role_type=ClientRoleType.CLIENT_ROLE_BROADCASTER,
             channel_profile=ChannelProfileType.CHANNEL_PROFILE_LIVE_BROADCASTING,
         )
@@ -184,20 +189,17 @@ class Bridge:
             self._start_video()
 
     def _start_video(self):
-        """Subscribe to the robot's video and republish it as RTSP."""
+        """Set up the encoded-video pipeline and subscribe to the robot's stream per-uid."""
         try:
             if self.video:            # on reconnect, tear down the old pipeline first
                 self.video.stop()
                 self.video = None
+                self._video_subscribed = False
                 time.sleep(1)
             import ebo_video
-            from agora.rtc.agora_base import VideoSubscriptionOptions, VideoStreamType
             from agora.rtc.local_user_observer import IRTCLocalUserObserver
             self.video = ebo_video.VideoPipeline(rtsp_port=self.rtsp_port)
             lu = self.rtc.get_local_user()
-
-            # diagnostics: tell us in the log exactly what the video track does
-            bridge = self
 
             class VidObs(IRTCLocalUserObserver):
                 def on_user_video_track_subscribed(o, l, uid, info, track):
@@ -206,37 +208,47 @@ class Bridge:
                 def on_first_remote_video_frame(o, l, uid, w, h, e):
                     log("[video] first remote frame %sx%s from %s" % (w, h, uid))
             lu._register_local_user_observer(VidObs())
-
             lu._register_video_encoded_frame_observer(self.video)
-            opts = VideoSubscriptionOptions(
-                type=VideoStreamType.VIDEO_STREAM_HIGH, encodedFrameOnly=True)
-            lu.subscribe_all_video(opts)   # only the robot is in the channel
-            log("[video] subscribed to robot video; RTSP on :%d/ebo" % self.rtsp_port)
+            log("[video] pipeline ready; RTSP on :%d/ebo — waiting for robot stream"
+                % self.rtsp_port)
 
-            # the server SDK doesn't auto-request a keyframe: ask the robot for one
-            # repeatedly until frames start flowing (then occasionally to recover).
-            robot_uid = str(self.s.get("robot_rtc_uid") or "")
+            # subscribe now if the robot already joined (usually it has by this point)
+            self._maybe_subscribe_video()
 
+            # keep asking the robot for a keyframe until frames flow (then occasionally)
             def keyframe_loop():
                 started = time.time()
                 warned = False
                 while not self.stop.is_set() and self.video:
                     got = self.video.frames
-                    try:
-                        self.rtc.send_intra_request(robot_uid)
-                    except Exception:
-                        pass
-                    # if nothing after 20 s, say so clearly (helps diagnose)
+                    if self.robot_uid:
+                        try:
+                            self.rtc.send_intra_request(self.robot_uid)
+                        except Exception:
+                            pass
                     if got == 0 and not warned and time.time() - started > 20:
                         warned = True
-                        log("[video] ⚠ still 0 frames after 20s — the robot isn't "
-                            "delivering encoded frames to the SDK (known H.265 limit). "
-                            "RTSP is up but empty.")
-                    # fast while no frames yet, slow once streaming
+                        log("[video] ⚠ still 0 frames after 20s — the SDK isn't handing over "
+                            "the robot's encoded H.265. RTSP is up but empty.")
                     self.stop.wait(1 if got == 0 else 8)
             threading.Thread(target=keyframe_loop, daemon=True).start()
         except Exception as e:
             log("[video] setup failed:", e)
+
+    def _maybe_subscribe_video(self):
+        """Subscribe to the robot's video (encoded-only) once we know its uid."""
+        if not (self.video_enabled and self.video and self.robot_uid
+                and not self._video_subscribed and self.rtc):
+            return
+        try:
+            from agora.rtc.agora_base import VideoSubscriptionOptions, VideoStreamType
+            opts = VideoSubscriptionOptions(
+                type=VideoStreamType.VIDEO_STREAM_HIGH, encodedFrameOnly=True)
+            self.rtc.get_local_user().subscribe_video(self.robot_uid, opts)
+            self._video_subscribed = True
+            log("[video] encoded subscribe to robot uid %s" % self.robot_uid)
+        except Exception as e:
+            log("[video] subscribe_video failed:", e)
 
     def _opts(self):
         return PublishOptions(
