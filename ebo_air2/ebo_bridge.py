@@ -163,7 +163,10 @@ class Bridge:
         svc.initialize(scfg)
         ccfg = RTCConnConfig(
             auto_subscribe_audio=0,
-            auto_subscribe_video=1 if self.video_enabled else 0,
+            # keep auto-subscribe OFF: we subscribe manually in encoded-only mode so we
+            # receive the raw H.265 bitstream (the SDK has no H.265 decoder; a decoded
+            # auto-subscribe yields 0 frames). See _start_video().
+            auto_subscribe_video=0,
             client_role_type=ClientRoleType.CLIENT_ROLE_BROADCASTER,
             channel_profile=ChannelProfileType.CHANNEL_PROFILE_LIVE_BROADCASTING,
         )
@@ -215,12 +218,20 @@ class Bridge:
             robot_uid = str(self.s.get("robot_rtc_uid") or "")
 
             def keyframe_loop():
+                started = time.time()
+                warned = False
                 while not self.stop.is_set() and self.video:
                     got = self.video.frames
                     try:
                         self.rtc.send_intra_request(robot_uid)
                     except Exception:
                         pass
+                    # if nothing after 20 s, say so clearly (helps diagnose)
+                    if got == 0 and not warned and time.time() - started > 20:
+                        warned = True
+                        log("[video] ⚠ still 0 frames after 20s — the robot isn't "
+                            "delivering encoded frames to the SDK (known H.265 limit). "
+                            "RTSP is up but empty.")
                     # fast while no frames yet, slow once streaming
                     self.stop.wait(1 if got == 0 else 8)
             threading.Thread(target=keyframe_loop, daemon=True).start()

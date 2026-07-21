@@ -1,5 +1,5 @@
 name: Enabot integration
-version: "0.5.0"
+version: "0.5.1"
 slug: ebo_air2
 description: Control and telemetry for the Enabot EBO Air 2 in Home Assistant (via Enabot cloud)
 url: https://github.com/Playcolors-co/ha-addons
@@ -10,6 +10,11 @@ arch:
   - amd64
 startup: application
 boot: auto
+# RTSP video stream (Generic Camera): expose the port so HA can reach rtsp://<host>:8554/ebo
+ports:
+  8554/tcp: 8554
+ports_description:
+  8554/tcp: "RTSP video stream — add a Generic Camera at rtsp://<HA-IP>:8554/ebo"
 # Our base is python:3.11-slim (not an HA base image with s6): disable HA init.
 init: false
 # Request the Supervisor MQTT service: the broker credentials are provided automatically.

@@ -84,13 +84,18 @@ The complete opcode catalog (movement, motion presets, voice, TTS, camera, eyes 
 scheduling, system…) is in [COMANDI.md](COMANDI.md). Commands marked *(moves)* drive the
 robot — use them only when you can see it.
 
-## Video (camera) — not working yet
+## Video (camera) — experimental
 
-> **Status:** the robot streams **H.265** over Agora, and the Agora *Python server SDK*
-> used here has no video decoder / no H.265 support, so video frames are not delivered
-> (control and telemetry are unaffected and work fully). Video is **off by default**
-> (`video: false`). Enabling it starts the RTSP machinery but the stream stays empty.
-> A working camera would require a different path (TUTK/Kalay over LAN) — future work.
+> **Status (v0.5.1):** two things were fixed to give video a real chance:
+> 1. the add-on now **exposes port 8554** (before, the RTSP URL was unreachable — a bind bug);
+> 2. it subscribes in **encoded-only mode** (`auto_subscribe_video=0` + encoded observer), so
+>    it forwards the raw **H.265** bitstream to `ffmpeg -c copy` instead of asking the SDK to
+>    decode it (the SDK has no H.265 decoder).
+>
+> The robot's live video is **RTC-native** (no extra "start" command needed). If the robot
+> delivers encoded frames, the camera works; if the SDK still hands over 0 frames, the log
+> now says so explicitly (`⚠ still 0 frames after 20s`). Video is **off by default**
+> (`video: false`) — enable it and check the log for `[video] N frames received`.
 
 With `video: true` the add-on subscribes to the robot's Agora video stream and republishes
 it as **RTSP** on port **8554**. To see it in Home Assistant:
