@@ -35,12 +35,18 @@ fi
 : "${EBO_MQTT_PORT:=1883}"
 export EBO_MQTT_HOST EBO_MQTT_PORT
 
-# Best-effort Home Assistant host IP, to show the exact RTSP camera URL in HA.
-if [ -n "$SUPERVISOR_TOKEN" ]; then
-  EBO_HOST_IP="$(curl -sf -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/network/info 2>/dev/null \
-    | jq -r '[.data.interfaces[]? | select(.enabled==true) | .ipv4.address[]?] | map(sub("/.*";"")) | first // empty' 2>/dev/null)"
-  export EBO_HOST_IP
-  [ -n "$EBO_HOST_IP" ] && echo "[add-on] host IP for camera URL: ${EBO_HOST_IP}"
+# Home Assistant host IP for the RTSP camera URL: use the manual option if set, else ask
+# the Supervisor for the primary interface address.
+EBO_HOST_IP="$(jq -r '.host_ip // empty' "$OPTS")"
+if [ -z "$EBO_HOST_IP" ] && [ -n "$SUPERVISOR_TOKEN" ]; then
+  NET_JSON="$(curl -sf -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/network/info 2>/dev/null || true)"
+  EBO_HOST_IP="$(echo "$NET_JSON" | jq -r 'first((.data.interfaces[]? | select(.primary==true) | .ipv4.address[0]) // empty) // (.data.interfaces[]? | select(.enabled==true) | .ipv4.address[0])' 2>/dev/null | sed 's#/.*##' | head -1)"
+fi
+export EBO_HOST_IP
+if [ -n "$EBO_HOST_IP" ]; then
+  echo "[add-on] host IP for camera URL: ${EBO_HOST_IP}"
+else
+  echo "[add-on] could not detect host IP — set 'host_ip' in the add-on config for the camera URL"
 fi
 
 echo "[add-on] starting Enabot integration bridge (region ${EBO_REGION})"
