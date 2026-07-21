@@ -1,5 +1,5 @@
 name: Enabot integration
-version: "0.8.0"
+version: "0.8.1"
 slug: ebo_air2
 description: Control and telemetry for the Enabot EBO Air 2 in Home Assistant (via Enabot cloud)
 url: https://github.com/Playcolors-co/ha-addons
@@ -20,6 +20,8 @@ init: false
 # Request the Supervisor MQTT service: the broker credentials are provided automatically.
 services:
   - mqtt:need
+# Allow querying the Supervisor for the host IP (to show the exact RTSP camera URL).
+hassio_api: true
 # Options exposed in the add-on UI
 options:
   email: ""
@@ -29,6 +31,7 @@ options:
   robot_id: 0
   video: false
   video_encoded: false
+  host_ip: ""
 schema:
   email: str
   password: password
@@ -37,3 +40,4 @@ schema:
   robot_id: int?
   video: bool?
   video_encoded: bool?
+  host_ip: str?

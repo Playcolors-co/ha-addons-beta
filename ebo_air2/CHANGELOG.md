@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.8.1 — fix the camera URL (real IP)
+- The camera URL showed the `<HOME-ASSISTANT-IP>` placeholder because the add-on couldn't
+  read the host IP. Added `hassio_api` permission to auto-detect it, plus a manual **`host_ip`**
+  option as a fallback. The **EBO camera URL** sensor now shows e.g. `rtsp://192.168.88.15:8554/ebo`.
+- Reminder: the camera on/off control is the **EBO camera** switch on the *EBO Air 2 device*
+  (not on the add-on page).
+
 ## 0.8.0 — camera on/off switch + RTSP URL shown
 - **EBO camera switch** (default OFF): the add-on no longer subscribes to the robot's video by
   default, so the robot is **not kept in video mode** all the time (saves battery / privacy).
