@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.6.0 — experimental video attempt #1
+- **Video (experimental):** try to receive the robot's **encoded H.265** by subscribing to
+  its stream **per-uid** (`subscribe_video`) in encoded-only mode, instead of the
+  `subscribe_all_video` call that segfaulted. If the SDK hands over frames, ffmpeg passes the
+  raw H.265 to HA (no decoder needed on our side). Enable with `video: true` and watch the log
+  for `[video] N frames received`; if it segfaults or shows `0 frames`, set `video: false`
+  (control/telemetry are unaffected either way).
+
 ## 0.5.4
 - **More reliable updates:** an add-on update rebuilds the Docker image; the video-only
   extras (ffmpeg, mediamtx from GitHub) are now **non-fatal** and `pip` retries, so a flaky
