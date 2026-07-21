@@ -49,6 +49,19 @@ else
   echo "[add-on] could not detect host IP — set 'host_ip' in the add-on config for the camera URL"
 fi
 
+# Log the version actually running (baked into the image) vs what the Supervisor thinks is
+# installed. If they differ, the image wasn't rebuilt on update (stale) — that's the real bug.
+CODE_VER="$(cat /app/VERSION.txt 2>/dev/null || echo '?')"
+INST_VER="?"
+if [ -n "$SUPERVISOR_TOKEN" ]; then
+  INST_VER="$(curl -sf -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/addons/self/info 2>/dev/null | jq -r '.data.version // "?"')"
+fi
+if [ "$CODE_VER" = "$INST_VER" ]; then
+  echo "[add-on] version ${CODE_VER} (running code matches installed)"
+else
+  echo "[add-on] ⚠ version MISMATCH: running code=${CODE_VER}, Supervisor installed=${INST_VER} — the image was NOT rebuilt (stale). Try: uninstall + reinstall the add-on."
+fi
+
 echo "[add-on] starting Enabot integration bridge (region ${EBO_REGION})"
 
 # Clean shutdown: when the Supervisor stops the add-on it sends SIGTERM. Forward it
