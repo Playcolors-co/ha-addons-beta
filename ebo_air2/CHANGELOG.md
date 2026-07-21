@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.8.2 — log the running version (spot stale updates)
+- The log now prints the **version actually running** (baked into the image) and compares it
+  to what the Supervisor thinks is installed. If they differ, it says the image wasn't rebuilt
+  (stale) — so you always know exactly which version you're testing. `VERSION.txt` in the image
+  guarantees the code layer is never stale-cached.
+- If you ever see the mismatch warning: **uninstall + reinstall** the add-on for a clean build.
+
 ## 0.8.1 — fix the camera URL (real IP)
 - The camera URL showed the `<HOME-ASSISTANT-IP>` placeholder because the add-on couldn't
   read the host IP. Added `hassio_api` permission to auto-detect it, plus a manual **`host_ip`**
