@@ -10,6 +10,8 @@ export EBO_PASSWORD="$(jq -r '.password // empty' "$OPTS")"
 export EBO_REGION="$(jq -r '.region // "GB"' "$OPTS")"
 export EBO_HOST="$(jq -r '.host // "ebox-eu.enabotserverintl.com"' "$OPTS")"
 export EBO_VIDEO="$(jq -r 'if .video==false then "0" else "1" end' "$OPTS")"
+# experimental encoded-video path (may crash the SDK) — off unless explicitly enabled
+export EBO_VIDEO_ENCODED="$(jq -r 'if .video_encoded==true then "1" else "0" end' "$OPTS")"
 ROBOT_ID="$(jq -r '.robot_id // 0' "$OPTS")"
 [ "$ROBOT_ID" != "0" ] && export EBO_ROBOT_ID="$ROBOT_ID"
 
@@ -53,16 +55,33 @@ term() {
 }
 trap term SIGTERM SIGINT
 
-# retry: login/cloud can fail transiently; don't let the add-on die — but stop
-# retrying the moment we've been asked to shut down.
+# Supervisor with a safety net: control and video share one Agora/RTC connection, so a
+# native video crash takes the whole bridge down. If that keeps happening, fall back to
+# control-only (video off) so the add-on never gets stuck in a crash loop.
+crashes=0
 while [ "$stopping" -eq 0 ]; do
+  start=$(date +%s)
   python /app/ebo_bridge.py &
   child=$!
   wait "$child"
   rc=$?
   [ "$stopping" -eq 1 ] && break
-  echo "[add-on] bridge exited (rc=${rc}), restarting in 30s…"
-  # interruptible sleep so a stop during the wait exits promptly
-  sleep 30 &
+  ran=$(( $(date +%s) - start ))
+
+  # a quick exit (<60s) with a crash code counts as a crash; a long run resets the counter
+  if [ "$ran" -lt 60 ] && { [ "$rc" -ge 128 ] || [ "$rc" -ne 0 ]; }; then
+    crashes=$(( crashes + 1 ))
+  else
+    crashes=0
+  fi
+
+  if [ "$crashes" -ge 2 ] && [ "${EBO_VIDEO}" != "0" ]; then
+    echo "[add-on] bridge crashed ${crashes}× quickly with video ON — disabling video and continuing with control only."
+    export EBO_VIDEO=0
+    crashes=0
+  fi
+
+  echo "[add-on] bridge exited (rc=${rc}), restarting in 15s…"
+  sleep 15 &
   wait $!
 done

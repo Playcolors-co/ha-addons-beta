@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.7.0 — safety net for video experiments
+- **Supervisor safety net:** control and video share one Agora/RTC connection (the robot only
+  accepts commands while you're present in RTC), so a native video crash takes the bridge
+  down. The add-on now **auto-falls back to control-only** after repeated quick crashes — no
+  more crash loops; control/telemetry always come back.
+- New **`video_encoded`** option (experimental) to try the encoded-H.265 path on demand.
+- Agora SDK version **pinned** (build arg `AGORA_SDK_VERSION`) so control is reproducible and
+  we can test other versions for the video path.
+
 ## 0.6.1 — back to stable (encoded video confirmed crashing)
 - Attempt #1 result: the encoded-only subscribe (`auto_subscribe_video=0`) **segfaults this
   Agora SDK build regardless of the subscribe method** (both `subscribe_all_video` and

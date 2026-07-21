@@ -18,7 +18,8 @@
 | `region` | account region (e.g. `GB`, `US`, `EU`) |
 | `host` | regional cloud endpoint. Default is EU; US ≈ `ebox-us.enabotserverintl.com` |
 | `robot_id` | `0` = auto-discovery. Set an id only if you have more than one robot |
-| `video` | `true` = expose the camera over RTSP (default). `false` to disable |
+| `video` | `true` = expose the camera over RTSP. `false` to disable (default) |
+| `video_encoded` | **experimental.** `true` tries the encoded-H.265 path (may crash the Agora SDK; if it does, the add-on auto-falls back to control-only). Leave `false`. |
 
 Your credentials stay in the add-on configuration (in HA) and are sent only to Enabot's
 servers, exactly like the official app does.
