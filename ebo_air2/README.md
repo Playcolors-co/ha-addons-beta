@@ -43,10 +43,10 @@ No phone, no emulator.
 |--------|------|
 | battery, wifi, SD space | sensor |
 | charging, recording | binary_sensor |
-| laser, sleep, AI tracking | switch |
+| laser, sleep | switch |
 | speed (1–100), volume (0–100) | number |
 | say (text-to-speech) | text |
-| forward / back / left / right / stop, return to base, patrol | button |
+| forward / back / left / right / stop, return to base | button |
 
 Plus the MQTT topic `ebo_air2/move/vector` which accepts `{"ly":-50,"rx":0,"hold":1.0}`
 for continuous analog control, and `ebo_air2/cmd` which accepts `{"id":<opcode>,"data":{…}}`
