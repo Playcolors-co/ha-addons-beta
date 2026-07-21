@@ -163,10 +163,10 @@ class Bridge:
         svc.initialize(scfg)
         ccfg = RTCConnConfig(
             auto_subscribe_audio=0,
-            # keep auto-subscribe OFF: we subscribe manually in encoded-only mode so we
-            # receive the raw H.265 bitstream (the SDK has no H.265 decoder; a decoded
-            # auto-subscribe yields 0 frames). See _start_video().
-            auto_subscribe_video=0,
+            # NOTE: auto_subscribe_video=0 + manual encoded subscribe SEGFAULTS the native
+            # Agora SDK on this build — keep it at 1 (stable). The encoded observer still
+            # receives frames when the SDK delivers them. See _start_video().
+            auto_subscribe_video=1 if self.video_enabled else 0,
             client_role_type=ClientRoleType.CLIENT_ROLE_BROADCASTER,
             channel_profile=ChannelProfileType.CHANNEL_PROFILE_LIVE_BROADCASTING,
         )
@@ -326,6 +326,9 @@ class Bridge:
         c.on_connect = self._on_mqtt_connect
         c.on_message = self._on_mqtt_message
         c.will_set("%s/status" % NODE, "offline", retain=True)
+        # assign before connecting: on_connect fires from the loop thread and may run
+        # before this method returns — self.mqtt must already be set for it.
+        self.mqtt = c
         # the broker (core-mosquitto) may not be ready yet at boot: retry a bit
         for attempt in range(12):
             try:
@@ -339,7 +342,6 @@ class Bridge:
             raise RuntimeError("MQTT broker unreachable at %s:%s" % (
                 self.mqtt_conf["host"], self.mqtt_conf["port"]))
         c.loop_start()
-        self.mqtt = c
 
     def _dev(self):
         return {
@@ -392,7 +394,14 @@ class Bridge:
         log("[patrol] start '%s' -> %s" % (self.patrol_choice, data))
 
     def _on_mqtt_connect(self, c, u, flags, rc):
+        self.mqtt = c            # ensure it's set even if connect_mqtt hasn't returned yet
         log("[MQTT] connected rc=%s" % rc)
+        try:
+            self._publish_discovery(c)
+        except Exception as e:
+            log("[MQTT] discovery error:", e)
+
+    def _publish_discovery(self, c):
         c.publish("%s/status" % NODE, "online", retain=True)
         st = "%s/state" % NODE
 

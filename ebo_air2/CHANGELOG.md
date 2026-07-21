@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.5.3
+- **Fix crash on start:** `_on_mqtt_connect` could run before `self.mqtt` was set, throwing
+  `AttributeError` and killing the MQTT thread (entities not published). Now assigned early
+  and the callback is guarded.
+- **Fix segfault:** the v0.5.1 encoded-only video subscribe (`auto_subscribe_video=0`)
+  crashed the native Agora SDK and took the whole bridge down — reverted to the stable
+  config. Port 8554 stays exposed. (Video via this SDK remains limited by H.265.)
+
 ## 0.5.2
 - Add this changelog (shown by Home Assistant in the update dialog).
 
