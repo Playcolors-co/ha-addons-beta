@@ -33,9 +33,15 @@ GET-style opcodes). The bridge adds the session id / timestamp automatically.
 | sleep (switch) | 101047 | `{"isSleeping": bool}` |
 | say (text) | 103501 | `{"userId","text"}` — robot speaks |
 | volume (number) | 102023 | `{"playbackVolume": 0..100, "isPlaybackMuted": bool}` |
-| return to base (button) | 103019 | `{}` **(moves)** |
-| patrol (button) | 103061 | *startPatrol object* **(moves)** |
-| AI tracking (switch) | 103049 | `{"enable": 0/1}` **(moves)** |
+| return to base (button) | 103043 | `{"startUp": true}` **(moves)** — no-op if already charging |
+
+### Not wired as entities (use the raw channel with the right payload)
+
+- **Patrol** — `{"id":103061,"data":{"mode":0,"routeId":<id>,"trackTarget":0,"voiceId":""}}`
+  **(moves)**. Needs a **route** first created in the EBO HOME app; `routeId` must match a
+  saved route (an empty/invalid id does nothing).
+- **AI tracking** — `{"id":103049,"data":{"mode":<m>,"trackTarget":<t>}}` **(moves)**. In the
+  app this is interactive — you tap the subject in the live video to get `mode`/`trackTarget`.
 
 ## Full opcode catalog (send via `ebo_air2/cmd`)
 
@@ -46,10 +52,12 @@ GET-style opcodes). The bridge adds the session id / timestamp automatically.
 - `103003` choreography — `{"cycleMode": int, "moveIds": [], "voiceIds": [], "emojiIds": []}` **(moves)**
 - `103011` move mode — `{"moveMode": int}`
 - `103009` speed — `{"moveSpeed": int}`
-- `103019` return to base — *autoRecharge object* **(moves)**
+- `103043` **return to base now** — `{"startUp": true}` **(moves)** — no-op if already charging
+- `103019` auto-recharge *settings* (not a "go home" command) —
+  `{"status","lowBattery","lowBatteryPercentage","timedEnable","startHour","startMinute","dndNight","chargeType"}`
 - `103023` motion settings — *motionSettings object*
-- `103049` start AI tracking — *startAiTrack object* **(moves)**
-- `103061` start patrol — *startPatrol object* **(moves)**
+- `103049` start AI tracking — `{"mode": int, "trackTarget": int}` **(moves)** — interactive (pick subject)
+- `103061` start patrol — `{"mode": int, "routeId": int, "trackTarget": int, "voiceId": str}` **(moves)** — needs a saved route
 - `103401` object tracking — `{"enable": int, "objectId": int}` **(moves)**
 
 **Audio / voice / conversational AI**
@@ -81,7 +89,7 @@ GET-style opcodes). The bridge adds the session id / timestamp automatically.
 - `101029` firmware update — *upgradeFirmware object*
 - `101061` roam mode — `{"isRoamOn": bool, "sensitivity": int}`
 - `101065` auto-switch — `{"autoSwitch": bool, "sensitivity": int}`
-- `103041` do-not-disturb — *dnd object* · `103043` `{"startUp": bool}` · `103047` `{"safeMode": int}`
+- `103041` do-not-disturb — *dnd object* · `103047` `{"safeMode": int}` (`103043` = return-to-base, see Movement)
 - `103093` privacy — *privacy object* · `103083` sound/picture — *soundPicture object*
 
 **GET (query state, no payload):** 101025, 101027 (settings), 101041, 101059, 101063,

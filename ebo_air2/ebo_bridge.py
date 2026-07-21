@@ -75,9 +75,11 @@ OP_MOVE_MODE = 103011   # {"moveMode": int}
 OP_SHOOT_MODE = 102035  # {"shootMode": int}  (photo/video)
 OP_PLAY_MOTION = 103005  # {"cycleMode": int, "moveId": int} — preset motion (MOVES)
 OP_PLAY_VOICE = 103007   # {"cycleMode": int, "voiceId": int}
-OP_AI_TRACK = 103049     # startAiTrack (MOVES) — AI subject tracking
-OP_PATROL = 103061       # startPatrol (MOVES)
-OP_DOCK = 103019         # auto-recharge / return to base (MOVES)
+OP_DOCK = 103043         # manual return-to-base / start charging: {"startUp": bool} (MOVES)
+# NOTE: patrol (103061) and AI tracking (103049) are NOT simple one-shot commands —
+# patrol needs a configured route {mode,routeId,trackTarget,voiceId} and AI tracking is
+# interactive (pick a subject: {mode,trackTarget}). Use the raw ebo_air2/cmd channel with
+# the right payload instead of a plain button. See COMANDI.md.
 
 DISCOVERY_PREFIX = "homeassistant"
 NODE = "ebo_air2"
@@ -390,17 +392,10 @@ class Bridge:
             "name": "EBO volume", "command_topic": "%s/volume/set" % NODE,
             "min": 0, "max": 100, "step": 1, "optimistic": True,
             "icon": "mdi:volume-high"})
-        # one-shot actions that DO move the robot (buttons, user/AI-initiated)
+        # return to base (only works when the robot is away from the dock / not charging)
         self._disc("button", "dock", {
             "name": "EBO return to base", "command_topic": "%s/dock" % NODE,
             "icon": "mdi:home-import-outline"})
-        self._disc("button", "patrol", {
-            "name": "EBO patrol", "command_topic": "%s/patrol" % NODE,
-            "icon": "mdi:map-marker-path"})
-        self._disc("switch", "ai_track", {
-            "name": "EBO AI tracking", "command_topic": "%s/ai_track/set" % NODE,
-            "payload_on": "on", "payload_off": "off", "optimistic": True,
-            "icon": "mdi:target-account"})
 
         c.subscribe("%s/laser/set" % NODE)
         c.subscribe("%s/speed/set" % NODE)
@@ -411,8 +406,6 @@ class Bridge:
         c.subscribe("%s/say" % NODE)
         c.subscribe("%s/volume/set" % NODE)
         c.subscribe("%s/dock" % NODE)
-        c.subscribe("%s/patrol" % NODE)
-        c.subscribe("%s/ai_track/set" % NODE)
         # RAW escape hatch for an AI/automation: publish {"id":<opcode>,"data":{...}}
         # to ebo_air2/cmd to send ANY command from the full catalog (docs/COMANDI.md).
         c.subscribe("%s/cmd" % NODE)
@@ -439,12 +432,8 @@ class Bridge:
                 self.send(OP_VOLUME, {"playbackVolume": int(float(payload)),
                                       "isPlaybackMuted": False})
             elif topic.endswith("/dock"):
-                self.send(OP_DOCK, {})              # return to charging base
-            elif topic.endswith("/patrol"):
-                self.send(OP_PATROL, {})
-            elif topic.endswith("/ai_track/set"):
-                on = payload.lower() in ("on", "true", "1")
-                self.send(OP_AI_TRACK, {"enable": 1 if on else 0})
+                # start returning to the charging base (no-op if already charging)
+                self.send(OP_DOCK, {"startUp": True})
             elif topic.endswith("/cmd"):
                 # raw command from an AI/automation: {"id":<opcode>,"data":{...}}
                 obj = json.loads(payload)

@@ -51,7 +51,13 @@ Value scale is ~±100. The vector must be "held": the add-on retransmits it at 1
 
 Besides battery/wifi/charging/recording/laser/speed and the move buttons, the add-on now
 exposes: **sleep** (switch), **say** (text — the robot speaks what you type), **volume**
-(number), **return to base** / **patrol** (buttons), **AI tracking** (switch).
+(number), and **return to base** (button — starts driving to the dock; only works when the
+robot is *not* already charging).
+
+> **Patrol** and **AI tracking** are intentionally *not* plain buttons: patrol needs a route
+> configured in the app (`{mode, routeId, trackTarget, voiceId}`) and AI tracking is
+> interactive (you pick the subject: `{mode, trackTarget}`). Trigger them via the raw command
+> channel below with the right payload — see [COMANDI.md](COMANDI.md).
 
 ## Full command catalog + raw channel (AI)
 
