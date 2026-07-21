@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.8.3 — fix camera race (double mediamtx / observer error)
+- `connect_agora` and `on_user_joined` could both subscribe at once, starting mediamtx twice
+  and double-registering the encoded observer (`unregister_video_encoded_frame_observer`
+  error). Now serialized with a lock and made idempotent. Camera URL detection confirmed
+  working (`rtsp://<HA-IP>:8554/ebo`).
+
 ## 0.8.2 — log the running version (spot stale updates)
 - The log now prints the **version actually running** (baked into the image) and compares it
   to what the Supervisor thinks is installed. If they differ, it says the image wasn't rebuilt

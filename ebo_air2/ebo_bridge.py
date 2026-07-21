@@ -124,6 +124,7 @@ class Bridge:
         self.video_on = self.video_enabled
         self.host_ip = os.environ.get("EBO_HOST_IP", "")
         self._observers_registered = False
+        self._video_lock = threading.Lock()   # serialize setup/subscribe (2 callers race)
 
     # ---------------- Agora ----------------
 
@@ -205,6 +206,8 @@ class Bridge:
 
     def _setup_video_pipeline(self):
         """Start the RTSP server and register the frame observers (no subscription yet)."""
+        if self._observers_registered:
+            return
         try:
             import ebo_video
             from agora.rtc.local_user_observer import IRTCLocalUserObserver
@@ -225,25 +228,28 @@ class Bridge:
             log("[video] pipeline setup failed:", e)
 
     def _subscribe_video(self):
-        """Subscribe to the robot's video → the robot enters video mode and starts streaming."""
-        if self._video_subscribed or not (self.robot_uid and self.rtc):
-            return
-        if not self._observers_registered:      # start RTSP server + observers on demand
-            self._setup_video_pipeline()
-        if not self.video:
-            return
-        try:
-            from agora.rtc.agora_base import VideoSubscriptionOptions, VideoStreamType
-            opts = VideoSubscriptionOptions(
-                type=VideoStreamType.VIDEO_STREAM_HIGH, encodedFrameOnly=self._encoded_mode)
-            self.rtc.get_local_user().subscribe_video(self.robot_uid, opts)
-            self._video_subscribed = True
-            log("[video] ON — subscribed to robot %s (%s). Camera stream: %s" % (
-                self.robot_uid, "encoded" if self._encoded_mode else "decoded",
-                self._rtsp_url()))
-            threading.Thread(target=self._keyframe_loop, daemon=True).start()
-        except Exception as e:
-            log("[video] subscribe failed:", e)
+        """Subscribe to the robot's video → the robot enters video mode and starts streaming.
+        Guarded by a lock: connect_agora and on_user_joined can call this concurrently."""
+        with self._video_lock:
+            if self._video_subscribed or not (self.robot_uid and self.rtc):
+                return
+            if not self._observers_registered:  # start RTSP server + observers on demand
+                self._setup_video_pipeline()
+            if not self.video:
+                return
+            try:
+                from agora.rtc.agora_base import VideoSubscriptionOptions, VideoStreamType
+                opts = VideoSubscriptionOptions(
+                    type=VideoStreamType.VIDEO_STREAM_HIGH,
+                    encodedFrameOnly=self._encoded_mode)
+                self.rtc.get_local_user().subscribe_video(self.robot_uid, opts)
+                self._video_subscribed = True
+                log("[video] ON — subscribed to robot %s (%s). Camera stream: %s" % (
+                    self.robot_uid, "encoded" if self._encoded_mode else "decoded",
+                    self._rtsp_url()))
+                threading.Thread(target=self._keyframe_loop, daemon=True).start()
+            except Exception as e:
+                log("[video] subscribe failed:", e)
 
     def _unsubscribe_video(self):
         """Stop subscribing → the robot can leave video mode."""
