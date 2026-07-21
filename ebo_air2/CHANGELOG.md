@@ -1,5 +1,10 @@
 # Changelog — Enabot integration
 
+## 0.5.4
+- **More reliable updates:** an add-on update rebuilds the Docker image; the video-only
+  extras (ffmpeg, mediamtx from GitHub) are now **non-fatal** and `pip` retries, so a flaky
+  network/GitHub outage can't fail the whole rebuild and leave you stuck on the old version.
+
 ## 0.5.3
 - **Fix crash on start:** `_on_mqtt_connect` could run before `self.mqtt` was set, throwing
   `AttributeError` and killing the MQTT thread (entities not published). Now assigned early
