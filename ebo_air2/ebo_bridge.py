@@ -117,7 +117,13 @@ class Bridge:
         self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
         self.robot_uid = None            # the robot's RTC uid, learned on_user_joined
         self._video_subscribed = False
-        self._encoded_mode = False       # experimental encoded subscribe (EBO_VIDEO_ENCODED)
+        self._encoded_mode = os.environ.get("EBO_VIDEO_ENCODED", "0") == "1"
+        # runtime camera switch: OFF by default so the robot is NOT kept in video mode.
+        # (control needs RTC presence, but we only subscribe to the robot's video — which is
+        # what puts it in video mode — when the user turns the camera switch on.)
+        self.video_on = self.video_enabled
+        self.host_ip = os.environ.get("EBO_HOST_IP", "")
+        self._observers_registered = False
 
     # ---------------- Agora ----------------
 
@@ -140,8 +146,9 @@ class Bridge:
             def on_user_joined(o, conn, uid):
                 self.robot_uid = str(uid)
                 log("[RTC] robot present:", uid)
-                # robot may join after _start_video ran: (re)try the encoded subscribe
-                self._maybe_subscribe_video()
+                # if the camera switch is on, subscribe now that we know the robot's uid
+                if self.video_on:
+                    self._subscribe_video()
 
         bridge = self
 
@@ -167,22 +174,21 @@ class Bridge:
         scfg = AgoraServiceConfig()
         scfg.appid = s["app_id"]
         svc.initialize(scfg)
-        # CONFIRMED: auto_subscribe_video=0 (manual encoded subscribe) SEGFAULTS this build of
-        # the Agora SDK — both subscribe_all_video and subscribe_video crash. Keep it at 1
-        # (stable). With auto=1 the SDK auto-subscribes decoded (0 frames for H.265) but does
-        # NOT crash. The encoded path can be retried by pinning a different SDK version.
-        encoded = os.environ.get("EBO_VIDEO_ENCODED", "0") == "1"
+        # Never auto-subscribe: we join RTC for control presence, but we only subscribe to the
+        # robot's video (which puts it in video mode) when the camera switch is on. This keeps
+        # the robot idle by default. (auto_subscribe_video=0 alone does NOT crash; only a
+        # manual *encoded* subscribe can.)
         ccfg = RTCConnConfig(
             auto_subscribe_audio=0,
-            auto_subscribe_video=0 if (self.video_enabled and encoded)
-            else (1 if self.video_enabled else 0),
+            auto_subscribe_video=0,
             client_role_type=ClientRoleType.CLIENT_ROLE_BROADCASTER,
             channel_profile=ChannelProfileType.CHANNEL_PROFILE_LIVE_BROADCASTING,
         )
-        self._encoded_mode = encoded
         pcfg = RtcConnectionPublishConfig(is_publish_audio=False, is_publish_video=False)
         self.rtc = svc.create_rtc_connection(ccfg, pcfg)
         self.rtc.register_observer(RtcObs())
+        self._observers_registered = False
+        self._video_subscribed = False
         self.rtc.connect(s["rtc_token"], s["rtc_channel"], s["rtc_uid"])
         for _ in range(20):
             if self.rtc_state:
@@ -190,20 +196,20 @@ class Bridge:
             time.sleep(0.5)
         log("[RTC] state:", self.rtc_state)
 
-        if self.video_enabled:
-            self._start_video()
+        if self.video_on:                 # restore camera state across reconnects
+            self._subscribe_video()
 
-    def _start_video(self):
-        """Set up the encoded-video pipeline and subscribe to the robot's stream per-uid."""
+    def _rtsp_url(self):
+        host = self.host_ip or "<HOME-ASSISTANT-IP>"
+        return "rtsp://%s:%d/ebo" % (host, self.rtsp_port)
+
+    def _setup_video_pipeline(self):
+        """Start the RTSP server and register the frame observers (no subscription yet)."""
         try:
-            if self.video:            # on reconnect, tear down the old pipeline first
-                self.video.stop()
-                self.video = None
-                self._video_subscribed = False
-                time.sleep(1)
             import ebo_video
             from agora.rtc.local_user_observer import IRTCLocalUserObserver
-            self.video = ebo_video.VideoPipeline(rtsp_port=self.rtsp_port)
+            if not self.video:
+                self.video = ebo_video.VideoPipeline(rtsp_port=self.rtsp_port)
             lu = self.rtc.get_local_user()
 
             class VidObs(IRTCLocalUserObserver):
@@ -214,47 +220,65 @@ class Bridge:
                     log("[video] first remote frame %sx%s from %s" % (w, h, uid))
             lu._register_local_user_observer(VidObs())
             lu._register_video_encoded_frame_observer(self.video)
-            log("[video] pipeline ready; RTSP on :%d/ebo — waiting for robot stream"
-                % self.rtsp_port)
-
-            # subscribe now if the robot already joined (usually it has by this point)
-            self._maybe_subscribe_video()
-
-            # keep asking the robot for a keyframe until frames flow (then occasionally)
-            def keyframe_loop():
-                started = time.time()
-                warned = False
-                while not self.stop.is_set() and self.video:
-                    got = self.video.frames
-                    if self.robot_uid:
-                        try:
-                            self.rtc.send_intra_request(self.robot_uid)
-                        except Exception:
-                            pass
-                    if got == 0 and not warned and time.time() - started > 20:
-                        warned = True
-                        log("[video] ⚠ still 0 frames after 20s — the SDK isn't handing over "
-                            "the robot's encoded H.265. RTSP is up but empty.")
-                    self.stop.wait(1 if got == 0 else 8)
-            threading.Thread(target=keyframe_loop, daemon=True).start()
+            self._observers_registered = True
         except Exception as e:
-            log("[video] setup failed:", e)
+            log("[video] pipeline setup failed:", e)
 
-    def _maybe_subscribe_video(self):
-        """Experimental encoded subscribe (only when EBO_VIDEO_ENCODED=1); in the default
-        stable mode auto_subscribe handles it (decoded, no crash)."""
-        if not (self._encoded_mode and self.video_enabled and self.video and self.robot_uid
-                and not self._video_subscribed and self.rtc):
+    def _subscribe_video(self):
+        """Subscribe to the robot's video → the robot enters video mode and starts streaming."""
+        if self._video_subscribed or not (self.robot_uid and self.rtc):
+            return
+        if not self._observers_registered:      # start RTSP server + observers on demand
+            self._setup_video_pipeline()
+        if not self.video:
             return
         try:
             from agora.rtc.agora_base import VideoSubscriptionOptions, VideoStreamType
             opts = VideoSubscriptionOptions(
-                type=VideoStreamType.VIDEO_STREAM_HIGH, encodedFrameOnly=True)
+                type=VideoStreamType.VIDEO_STREAM_HIGH, encodedFrameOnly=self._encoded_mode)
             self.rtc.get_local_user().subscribe_video(self.robot_uid, opts)
             self._video_subscribed = True
-            log("[video] (experimental) encoded subscribe to robot uid %s" % self.robot_uid)
+            log("[video] ON — subscribed to robot %s (%s). Camera stream: %s" % (
+                self.robot_uid, "encoded" if self._encoded_mode else "decoded",
+                self._rtsp_url()))
+            threading.Thread(target=self._keyframe_loop, daemon=True).start()
         except Exception as e:
-            log("[video] subscribe_video failed:", e)
+            log("[video] subscribe failed:", e)
+
+    def _unsubscribe_video(self):
+        """Stop subscribing → the robot can leave video mode."""
+        if not self._video_subscribed:
+            return
+        self._video_subscribed = False
+        try:
+            self.rtc.get_local_user().unsubscribe_video(self.robot_uid)
+            log("[video] OFF — unsubscribed; robot can leave video mode")
+        except Exception as e:
+            log("[video] unsubscribe failed:", e)
+
+    def _keyframe_loop(self):
+        started = time.time()
+        warned = False
+        while not self.stop.is_set() and self._video_subscribed and self.video:
+            got = self.video.frames
+            if self.robot_uid:
+                try:
+                    self.rtc.send_intra_request(self.robot_uid)
+                except Exception:
+                    pass
+            if got == 0 and not warned and time.time() - started > 20:
+                warned = True
+                log("[video] ⚠ still 0 frames after 20s — the SDK isn't handing over the "
+                    "robot's encoded H.265. RTSP is up but empty.")
+            self.stop.wait(1 if got == 0 else 8)
+
+    def set_camera(self, on):
+        self.video_on = on
+        if on:
+            self._subscribe_video()
+        else:
+            self._unsubscribe_video()
+        self._publish_camera_state()
 
     def _opts(self):
         return PublishOptions(
@@ -484,6 +508,15 @@ class Bridge:
         self._disc("button", "dock", {
             "name": "EBO return to base", "command_topic": "%s/dock" % NODE,
             "icon": "mdi:home-import-outline"})
+        # camera on/off: only when ON does the bridge subscribe to the robot's video (i.e.
+        # put it in video mode). The RTSP URL to use is published as a sensor.
+        self._disc("switch", "camera", {
+            "name": "EBO camera", "command_topic": "%s/camera/set" % NODE,
+            "state_topic": "%s/camera/state" % NODE,
+            "payload_on": "on", "payload_off": "off", "icon": "mdi:cctv"})
+        self._disc("sensor", "camera_url", {
+            "name": "EBO camera URL", "state_topic": "%s/camera/url" % NODE,
+            "icon": "mdi:link-variant", "entity_category": "diagnostic"})
         # patrol: pick a route (auto = no route) and start it
         self._publish_patrol_select()
         self._disc("button", "patrol_start", {
@@ -501,6 +534,8 @@ class Bridge:
         c.subscribe("%s/dock" % NODE)
         c.subscribe("%s/patrol/route/set" % NODE)
         c.subscribe("%s/patrol/start" % NODE)
+        c.subscribe("%s/camera/set" % NODE)
+        self._publish_camera_state()
         # RAW escape hatch for an AI/automation: publish {"id":<opcode>,"data":{...}}
         # to ebo_air2/cmd to send ANY command from the full catalog (docs/COMANDI.md).
         c.subscribe("%s/cmd" % NODE)
@@ -534,6 +569,8 @@ class Bridge:
                 self.mqtt.publish("%s/patrol/route" % NODE, payload, retain=True)
             elif topic.endswith("/patrol/start"):
                 self._start_patrol()
+            elif topic.endswith("/camera/set"):
+                self.set_camera(payload.lower() in ("on", "true", "1"))
             elif topic.endswith("/cmd"):
                 # raw command from an AI/automation: {"id":<opcode>,"data":{...}}
                 obj = json.loads(payload)
@@ -572,6 +609,14 @@ class Bridge:
     def _publish_settings(self):
         # merges moveSpeed into the state
         self._publish_telemetry()
+
+    def _publish_camera_state(self):
+        if not self.mqtt:
+            return
+        self.mqtt.publish("%s/camera/state" % NODE, "on" if self.video_on else "off",
+                          retain=True)
+        self.mqtt.publish("%s/camera/url" % NODE,
+                          self._rtsp_url() if self.video_on else "off", retain=True)
 
     # ---------------- avvio ----------------
 

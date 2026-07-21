@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.8.0 — camera on/off switch + RTSP URL shown
+- **EBO camera switch** (default OFF): the add-on no longer subscribes to the robot's video by
+  default, so the robot is **not kept in video mode** all the time (saves battery / privacy).
+  Control stays on (RTC presence). Flip the switch on only when you want the stream.
+- **EBO camera URL** sensor + a log line show the exact RTSP link (with your HA IP) once the
+  camera is on, e.g. `rtsp://192.168.88.15:8554/ebo`.
+- Video subscribe is now **runtime** (subscribe/unsubscribe on the switch) instead of always-on.
+
 ## 0.7.0 — safety net for video experiments
 - **Supervisor safety net:** control and video share one Agora/RTC connection (the robot only
   accepts commands while you're present in RTC), so a native video crash takes the bridge

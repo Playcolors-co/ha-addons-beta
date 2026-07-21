@@ -18,8 +18,8 @@
 | `region` | account region (e.g. `GB`, `US`, `EU`) |
 | `host` | regional cloud endpoint. Default is EU; US ≈ `ebox-us.enabotserverintl.com` |
 | `robot_id` | `0` = auto-discovery. Set an id only if you have more than one robot |
-| `video` | `true` = expose the camera over RTSP. `false` to disable (default) |
-| `video_encoded` | **experimental.** `true` tries the encoded-H.265 path (may crash the Agora SDK; if it does, the add-on auto-falls back to control-only). Leave `false`. |
+| `video` | startup state of the **EBO camera** switch. `false` (default) = camera off at start, so the robot is **not** kept in video mode. You can turn it on anytime from the switch. |
+| `video_encoded` | **experimental.** `true` makes the camera use the encoded-H.265 path (may crash the Agora SDK; if it does, the add-on auto-falls back to control-only). Leave `false`. |
 
 Your credentials stay in the add-on configuration (in HA) and are sent only to Enabot's
 servers, exactly like the official app does.
@@ -95,19 +95,27 @@ robot — use them only when you can see it.
 > frames after 20s`. Control and telemetry are unaffected. A working camera needs a different
 > decode path; video stays **off by default** (`video: false`).
 
-With `video: true` the add-on subscribes to the robot's Agora video stream and republishes
-it as **RTSP** on port **8554**. To see it in Home Assistant:
+### The camera switch
 
-1. **Settings → Devices & Services → + Add Integration → Generic Camera**
-2. Stream URL:
-   ```
-   rtsp://<HOME_ASSISTANT_IP>:8554/ebo
-   ```
-   (use the IP of the machine running HA; the add-on exposes port 8554 on the host)
-3. Leave the rest at defaults → Submit.
+The **EBO camera** switch controls the video. It is **off by default**: the add-on stays in
+RTC only for control (so commands work), but it does **not** subscribe to the robot's video —
+which is what keeps the robot in "video mode". Turn the switch **on** only when you want the
+stream; turn it **off** to let the robot leave video mode (saves battery, more privacy).
 
-The stream is passed through without transcoding (`-c copy`), so CPU usage is low. Check the
-add-on log for `[video] N frames received` to confirm the robot is publishing video.
+When you turn it on, the add-on subscribes to the robot's Agora video and republishes it as
+**RTSP** on port **8554**. The exact URL is shown:
+- in the **EBO camera URL** sensor (e.g. `rtsp://192.168.88.15:8554/ebo`), and
+- in the add-on **log** (`[video] ON — … Camera stream: rtsp://…`).
+
+To see it in Home Assistant:
+1. Turn the **EBO camera** switch **on**.
+2. **Settings → Devices & Services → + Add Integration → Generic Camera**
+3. Stream URL = the value of the **EBO camera URL** sensor (`rtsp://<HA-IP>:8554/ebo`).
+4. Leave the rest at defaults → Submit.
+
+The stream is passed through without transcoding (`-c copy`). Check the log for
+`[video] N frames received` to confirm frames are actually flowing (with the current SDK they
+usually are **not**, for H.265 — see the status note above).
 
 ## Known limitations
 
