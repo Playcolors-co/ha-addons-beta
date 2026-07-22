@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.9.1 — the missing video switch: enable_video=1
+- The decoded observer got 0 frames because the Agora **service** config was missing
+  `enable_video = 1` (found in the official `example_video_yuv_receive.py`). Without it the SDK
+  doesn't process video at all. Added it. If this was the blocker, you'll now see
+  `[video] first decoded frame WxH` with `video: true` + the **EBO camera** switch on.
+
 ## 0.9.0 — video via the SDK's H.265 DECODER (new approach)
 - Root cause found in the official SDK docs: the *encoded* frame observer segfaults for H.265,
   but the SDK **decodes H.265 to raw YUV**. Until now the add-on only registered the encoded

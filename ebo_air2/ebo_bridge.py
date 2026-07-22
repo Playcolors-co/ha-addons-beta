@@ -174,6 +174,12 @@ class Bridge:
         svc = AgoraService()
         scfg = AgoraServiceConfig()
         scfg.appid = s["app_id"]
+        # REQUIRED to receive/decode video — without this the frame observer gets 0 frames.
+        if self.video_enabled:
+            try:
+                scfg.enable_video = 1
+            except Exception:
+                pass
         svc.initialize(scfg)
         # Decoded video path: auto-subscribe so the SDK DECODES the robot's H.265 to raw YUV
         # (this build decodes H.265 but its *encoded* observer segfaults). We re-encode the YUV
