@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.9.0 — video via the SDK's H.265 DECODER (new approach)
+- Root cause found in the official SDK docs: the *encoded* frame observer segfaults for H.265,
+  but the SDK **decodes H.265 to raw YUV**. Until now the add-on only registered the encoded
+  observer (hence 0 frames / crashes).
+- Now it registers the **decoded** video-frame observer (`register_video_frame_observer`,
+  `auto_subscribe_video=1`), reads the YUV frames and **re-encodes to H.264 with ffmpeg** →
+  RTSP. If the robot publishes and the SDK decodes, the log shows `first decoded frame WxH`
+  and `N frames received`.
+- Enable with `video: true` + the **EBO camera** switch. Watch the log for the frame lines.
+
 ## 0.8.3 — fix camera race (double mediamtx / observer error)
 - `connect_agora` and `on_user_joined` could both subscribe at once, starting mediamtx twice
   and double-registering the encoded observer (`unregister_video_encoded_frame_observer`

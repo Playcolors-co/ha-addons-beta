@@ -86,15 +86,14 @@ The complete opcode catalog (movement, motion presets, voice, TTS, camera, eyes 
 scheduling, system…) is in [COMANDI.md](COMANDI.md). Commands marked *(moves)* drive the
 robot — use them only when you can see it.
 
-## Video (camera) — still limited
+## Video (camera) — decoded path (v0.9)
 
-> **Status (v0.5.3):** the missing **port 8554** bind is fixed, so the RTSP URL is now
-> reachable. However, the attempt to force *encoded-only* reception (`auto_subscribe_video=0`)
-> **crashed the native Agora SDK** (segfault, taking the whole bridge down), so it was
-> reverted to the stable config. The robot streams **H.265** and this Python server SDK has
-> no H.265 decoder, so frames are typically not delivered — the log will show `⚠ still 0
-> frames after 20s`. Control and telemetry are unaffected. A working camera needs a different
-> decode path; video stays **off by default** (`video: false`).
+> **Status (v0.9.0):** new approach. The SDK's *encoded* frame path segfaults for H.265, but
+> the SDK **can decode H.265 to raw YUV**. So the add-on now subscribes to the **decoded**
+> video (`register_video_frame_observer`, `auto_subscribe_video=1`), takes the YUV frames and
+> **re-encodes them to H.264 with ffmpeg**, then serves RTSP. If the robot publishes and the
+> SDK decodes, you'll see `[video] first decoded frame WxH` and `N frames received` in the
+> log — then the camera works. Enable with `video: true` and the **EBO camera** switch.
 
 ### The camera switch
 
