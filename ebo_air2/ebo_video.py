@@ -43,6 +43,8 @@ class VideoPipeline(IVideoFrameObserver):
         self.audio = os.environ.get("EBO_AUDIO", "0") == "1"
         self.audio_rate = 16000
         self._a_w = None              # write end of the audio pipe to ffmpeg
+        self._audio_lock = threading.Lock()
+        self._last_audio = 0.0        # last time real PCM arrived
         self.ff = None
         self.w = 0
         self.h = 0
@@ -109,6 +111,23 @@ class VideoPipeline(IVideoFrameObserver):
         if a_r is not None:
             os.close(a_r)             # parent drops the read end (ffmpeg owns it)
             os.set_blocking(self._a_w, False)   # never block the SDK audio thread
+            self._last_audio = 0.0
+            threading.Thread(target=self._silence_loop, args=(self.ff,),
+                             daemon=True).start()
+
+    def _silence_loop(self, ff):
+        """Feed silence to the audio pipe when no real audio is arriving, so ffmpeg never
+        stalls waiting for the second input (which would freeze the video)."""
+        chunk = b"\x00" * int(self.audio_rate * 2 * 0.05)   # 50 ms of s16le silence
+        while self.ff is ff and self._a_w is not None:
+            if time.time() - self._last_audio > 0.2:
+                with self._audio_lock:
+                    if self._a_w is not None:
+                        try:
+                            os.write(self._a_w, chunk)
+                        except (BlockingIOError, BrokenPipeError, OSError):
+                            pass
+            time.sleep(0.05)
 
     def _stop_ffmpeg(self):
         if self._a_w is not None:
@@ -130,15 +149,19 @@ class VideoPipeline(IVideoFrameObserver):
             self.ff = None
 
     def write_audio(self, pcm):
-        """Feed one PCM chunk (16-bit mono @ audio_rate) to ffmpeg. Non-blocking: drop if the
-        pipe is full so the SDK's audio thread never stalls."""
-        w = self._a_w
-        if w is None or not self.feeding:
+        """Feed one real PCM chunk (16-bit mono @ audio_rate) to ffmpeg. Non-blocking: drop if
+        the pipe is full so the SDK's audio thread never stalls."""
+        if self._a_w is None or not self.feeding:
             return
-        try:
-            os.write(w, bytes(pcm))
-        except (BlockingIOError, BrokenPipeError, OSError):
-            pass
+        with self._audio_lock:
+            w = self._a_w
+            if w is None:
+                return
+            try:
+                os.write(w, bytes(pcm))
+                self._last_audio = time.time()
+            except (BlockingIOError, BrokenPipeError, OSError):
+                pass
 
     # ---- camera switch ----
     def start_feed(self):

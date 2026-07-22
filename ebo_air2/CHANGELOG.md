@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.13.3 — audio no longer breaks video
+- With `audio: true`, ffmpeg had a second (audio) input; if the robot's PCM didn't arrive it
+  **stalled the whole mux and froze the video**. Fixed: (1) the audio observer is now kept
+  referenced (it was garbage-collected, so it never fired), and (2) the pipeline feeds
+  **silence** when no real audio arrives, so ffmpeg never blocks — **video always flows**,
+  with audio overlaid when the robot sends it.
+
 ## 0.13.2 — quieter log + log level
 - New **`log_level`** option: `info` (default) shows key events only — no more `N frames
   received` spam; `debug` for the chatty lines; `warning` for problems only. Video keeps a

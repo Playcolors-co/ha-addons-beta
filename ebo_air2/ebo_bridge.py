@@ -265,7 +265,8 @@ class Bridge:
                     except Exception:
                         pass
                     return 0
-            self.rtc.register_audio_frame_observer(AudioObs(), 0, None)
+            self._audio_obs = AudioObs()   # keep a reference (else it's GC'd, no callbacks)
+            self.rtc.register_audio_frame_observer(self._audio_obs, 0, None)
             log("[audio] PCM observer registered (listen)")
         except Exception as e:
             log("[audio] observer registration failed:", e)
