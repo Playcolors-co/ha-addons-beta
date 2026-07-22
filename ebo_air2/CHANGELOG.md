@@ -1,5 +1,10 @@
 # Changelog — Enabot integration
 
+## 0.13.2 — quieter log + log level
+- New **`log_level`** option: `info` (default) shows key events only — no more `N frames
+  received` spam; `debug` for the chatty lines; `warning` for problems only. Video keeps a
+  light "still streaming" heartbeat every few minutes at info level.
+
 ## 0.13.1 — audio fix + diagnostics
 - Audio didn't work because a required SDK call was missing:
   `set_playback_audio_frame_before_mixing_parameters(1, 16000)` — without it the PCM callback

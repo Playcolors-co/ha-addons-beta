@@ -13,6 +13,7 @@ export EBO_VIDEO="$(jq -r 'if .video==false then "0" else "1" end' "$OPTS")"
 # experimental encoded-video path (may crash the SDK) — off unless explicitly enabled
 export EBO_VIDEO_ENCODED="$(jq -r 'if .video_encoded==true then "1" else "0" end' "$OPTS")"
 export EBO_AUDIO="$(jq -r 'if .audio==true then "1" else "0" end' "$OPTS")"
+export EBO_LOG_LEVEL="$(jq -r '.log_level // "info"' "$OPTS")"
 # video re-encode tuning: max height (0 = native) + libx264 preset
 export EBO_VIDEO_MAX_HEIGHT="$(jq -r '.video_max_height // 720' "$OPTS")"
 export EBO_VIDEO_PRESET="$(jq -r '.video_preset // "ultrafast"' "$OPTS")"

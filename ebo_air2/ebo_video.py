@@ -178,8 +178,10 @@ class VideoPipeline(IVideoFrameObserver):
                 if self.frames == 1:
                     log("[video] first decoded frame %dx%d (pix_type=%s) — encoding to RTSP"
                         % (w, h, getattr(frame, "type", "?")))
-                elif self.frames % 300 == 0:
-                    log("[video] %d frames received (%dx%d)" % (self.frames, w, h))
+                elif self.frames % 4500 == 0:     # light heartbeat (~every few minutes)
+                    log("[video] streaming — %d frames (%dx%d)" % (self.frames, w, h))
+                elif self.frames % 300 == 0:      # detailed, only in debug
+                    log("[video] %d frames received" % self.frames, level="debug")
         except Exception as e:
             log("[video] frame error:", e)
         return 0
