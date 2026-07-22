@@ -1,5 +1,10 @@
 # Changelog — Enabot integration
 
+## 0.10.0 — video CPU: resolution/quality options
+- The robot streams ~2304×1296 (2K); re-encoding that is CPU-heavy on a NUC. New options:
+  `video_max_height` (default **720** — big CPU saving; set `0` for native 2K) and
+  `video_preset` (libx264 speed/quality). The log shows the chosen resolution/preset.
+
 ## 0.9.2 — video works: fix client attach (keyframes)
 - 🎉 Live video works (H.265 decoded by the SDK → re-encoded to H.264 → RTSP). Fixed the
   "Timeout while loading URL" when adding the camera: ffmpeg now emits a **keyframe every ~2s**

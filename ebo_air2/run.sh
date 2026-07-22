@@ -12,6 +12,9 @@ export EBO_HOST="$(jq -r '.host // "ebox-eu.enabotserverintl.com"' "$OPTS")"
 export EBO_VIDEO="$(jq -r 'if .video==false then "0" else "1" end' "$OPTS")"
 # experimental encoded-video path (may crash the SDK) — off unless explicitly enabled
 export EBO_VIDEO_ENCODED="$(jq -r 'if .video_encoded==true then "1" else "0" end' "$OPTS")"
+# video re-encode tuning: max height (0 = native) + libx264 preset
+export EBO_VIDEO_MAX_HEIGHT="$(jq -r '.video_max_height // 720' "$OPTS")"
+export EBO_VIDEO_PRESET="$(jq -r '.video_preset // "ultrafast"' "$OPTS")"
 ROBOT_ID="$(jq -r '.robot_id // 0' "$OPTS")"
 [ "$ROBOT_ID" != "0" ] && export EBO_ROBOT_ID="$ROBOT_ID"
 

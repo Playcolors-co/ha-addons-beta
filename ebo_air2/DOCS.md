@@ -1,4 +1,4 @@
-# Enabot integration — documentation
+# EBO Air 2 — documentation
 
 > ℹ️ **Tested devices.** So far this add-on has been tested **only on the Enabot EBO Air 2**.
 > It may work with other EBO models that talk to the same Enabot cloud (EBO SE 2, Max, EBO X…),
@@ -20,6 +20,8 @@
 | `robot_id` | `0` = auto-discovery. Set an id only if you have more than one robot |
 | `video` | startup state of the **EBO camera** switch. `false` (default) = camera off at start, so the robot is **not** kept in video mode. You can turn it on anytime from the switch. |
 | `video_encoded` | **experimental.** `true` makes the camera use the encoded-H.265 path (may crash the Agora SDK; if it does, the add-on auto-falls back to control-only). Leave `false`. |
+| `video_max_height` | downscale the re-encoded stream to this height to save CPU (native is ~1296p). `720` (default) is a good balance; `0` = keep native resolution. |
+| `video_preset` | libx264 speed/quality preset: `ultrafast` (default, lowest CPU) … `fast`. Slower presets look a bit better but use more CPU. |
 | `host_ip` | optional. The IP of your Home Assistant machine, used to build the RTSP camera URL. Leave empty to auto-detect; set it (e.g. `192.168.88.15`) if the URL shows `<HOME-ASSISTANT-IP>`. |
 
 Your credentials stay in the add-on configuration (in HA) and are sent only to Enabot's
