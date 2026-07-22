@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.12.1 — camera stream: fix timestamps ("No dts")
+- The re-encoded stream could produce timestamps HA's stream backend rejected ("No dts in N
+  consecutive packets"). ffmpeg now timestamps incoming frames by arrival
+  (`use_wallclock_as_timestamps`) and forces a constant output rate (`-r`, CFR), giving clean
+  monotonic DTS/PTS. (The `Connection refused`/`404` errors were just the add-on being down
+  during the update — transient.)
+
 ## 0.12.0 — "connected" switch + CI
 - **EBO connected** switch (default on): turn it **off** to fully leave the cloud session so
   the robot can **sleep** (no control/telemetry while off); turn it back on to reconnect. MQTT

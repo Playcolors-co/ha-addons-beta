@@ -78,13 +78,17 @@ class VideoPipeline(IVideoFrameObserver):
                 % (w, h, self.preset))
         self.ff = subprocess.Popen([
             "ffmpeg", "-hide_banner", "-loglevel", "error",
+            # frames arrive irregularly from the SDK — timestamp them by arrival and force a
+            # constant output rate so Home Assistant's stream gets clean, monotonic DTS/PTS
+            # (fixes "No dts in N consecutive packets").
+            "-fflags", "+genpts", "-use_wallclock_as_timestamps", "1",
             "-f", "rawvideo", "-pixel_format", "yuv420p",
             "-video_size", "%dx%d" % (w, h), "-framerate", str(self.fps),
             "-i", "pipe:0",
         ] + scale + [
             "-c:v", "libx264", "-preset", self.preset, "-tune", "zerolatency",
             "-g", str(gop), "-keyint_min", str(gop), "-sc_threshold", "0", "-bf", "0",
-            "-pix_fmt", "yuv420p", "-an",
+            "-r", str(self.fps), "-vsync", "cfr", "-pix_fmt", "yuv420p", "-an",
             "-f", "rtsp", "-rtsp_transport", "tcp", self.rtsp_url,
         ], stdin=subprocess.PIPE)
 
