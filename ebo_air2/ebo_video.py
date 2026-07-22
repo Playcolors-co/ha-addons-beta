@@ -31,7 +31,7 @@ def _pack_plane(buf, stride, width, height):
 
 
 class VideoPipeline(IVideoFrameObserver):
-    def __init__(self, rtsp_port=8554, path="ebo", fps=15):
+    def __init__(self, rtsp_port=8554, path="ebo", fps=25):
         super().__init__()
         self.rtsp_port = rtsp_port
         self.rtsp_url = f"rtsp://127.0.0.1:{rtsp_port}/{path}"
@@ -94,17 +94,18 @@ class VideoPipeline(IVideoFrameObserver):
             pass_fds = (a_r,)
         self.ff = subprocess.Popen([
             "ffmpeg", "-hide_banner", "-loglevel", "error",
-            # frames arrive irregularly from the SDK — timestamp them by arrival and force a
-            # constant output rate so Home Assistant's stream gets clean, monotonic DTS/PTS
-            # (fixes "No dts in N consecutive packets").
-            "-fflags", "+genpts", "-use_wallclock_as_timestamps", "1",
+            # low latency: timestamp frames by arrival (clean monotonic DTS/PTS — fixes the
+            # "No dts" issue) and DON'T resample the frame rate (forcing CFR buffered/dropped
+            # frames and added delay). The robot streams ~25 fps.
+            "-fflags", "+genpts+nobuffer", "-flags", "+low_delay",
+            "-use_wallclock_as_timestamps", "1",
             "-f", "rawvideo", "-pixel_format", "yuv420p",
             "-video_size", "%dx%d" % (w, h), "-framerate", str(self.fps),
             "-i", "pipe:0",
         ] + audio_in + scale + [
             "-c:v", "libx264", "-preset", self.preset, "-tune", "zerolatency",
             "-g", str(gop), "-keyint_min", str(gop), "-sc_threshold", "0", "-bf", "0",
-            "-r", str(self.fps), "-vsync", "cfr", "-pix_fmt", "yuv420p",
+            "-pix_fmt", "yuv420p",
         ] + audio_out + [
             "-f", "rtsp", "-rtsp_transport", "tcp", self.rtsp_url,
         ], stdin=subprocess.PIPE, pass_fds=pass_fds)

@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.13.4 — much lower video latency
+- The stream lagged because ffmpeg was forced to 15 fps (`-r`/`-vsync cfr`) while the robot
+  sends ~25 fps → it buffered and dropped frames. Now it passes the real frame rate through
+  with arrival timestamps + low-delay flags: **latency should drop a lot** (clean DTS kept).
+- For the lowest latency/CPU use `video_preset: ultrafast` and a lower `video_max_height`.
+
 ## 0.13.3 — audio no longer breaks video
 - With `audio: true`, ffmpeg had a second (audio) input; if the robot's PCM didn't arrive it
   **stalled the whole mux and froze the video**. Fixed: (1) the audio observer is now kept

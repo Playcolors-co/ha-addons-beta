@@ -1,5 +1,5 @@
 name: EBO Air 2 (beta)
-version: "0.13.3"
+version: "0.13.4"
 slug: ebo_air2
 description: Control and telemetry for the Enabot EBO Air 2 in Home Assistant (via Enabot cloud)
 url: https://github.com/Playcolors-co/ha-addons-beta
