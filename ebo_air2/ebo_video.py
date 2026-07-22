@@ -39,6 +39,10 @@ class VideoPipeline(IVideoFrameObserver):
         # downscale to cut CPU on the re-encode (0 = keep the robot's native resolution)
         self.max_h = int(os.environ.get("EBO_VIDEO_MAX_HEIGHT", "720") or "0")
         self.preset = os.environ.get("EBO_VIDEO_PRESET", "ultrafast")
+        # optional audio (listen): 16 kHz mono PCM from the SDK, muxed as AAC (default off)
+        self.audio = os.environ.get("EBO_AUDIO", "0") == "1"
+        self.audio_rate = 16000
+        self._a_w = None              # write end of the audio pipe to ffmpeg
         self.ff = None
         self.w = 0
         self.h = 0
@@ -76,6 +80,16 @@ class VideoPipeline(IVideoFrameObserver):
         else:
             log("[video] starting ffmpeg %dx%d -> H.264/RTSP (preset %s)"
                 % (w, h, self.preset))
+        # optional audio input via a dedicated pipe (fd inherited by ffmpeg)
+        audio_in, audio_out, pass_fds = [], ["-an"], ()
+        a_r = None
+        if self.audio:
+            a_r, self._a_w = os.pipe()
+            os.set_inheritable(a_r, True)
+            audio_in = ["-thread_queue_size", "1024", "-f", "s16le",
+                        "-ar", str(self.audio_rate), "-ac", "1", "-i", "pipe:%d" % a_r]
+            audio_out = ["-c:a", "aac", "-b:a", "48k"]
+            pass_fds = (a_r,)
         self.ff = subprocess.Popen([
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             # frames arrive irregularly from the SDK — timestamp them by arrival and force a
@@ -85,14 +99,24 @@ class VideoPipeline(IVideoFrameObserver):
             "-f", "rawvideo", "-pixel_format", "yuv420p",
             "-video_size", "%dx%d" % (w, h), "-framerate", str(self.fps),
             "-i", "pipe:0",
-        ] + scale + [
+        ] + audio_in + scale + [
             "-c:v", "libx264", "-preset", self.preset, "-tune", "zerolatency",
             "-g", str(gop), "-keyint_min", str(gop), "-sc_threshold", "0", "-bf", "0",
-            "-r", str(self.fps), "-vsync", "cfr", "-pix_fmt", "yuv420p", "-an",
+            "-r", str(self.fps), "-vsync", "cfr", "-pix_fmt", "yuv420p",
+        ] + audio_out + [
             "-f", "rtsp", "-rtsp_transport", "tcp", self.rtsp_url,
-        ], stdin=subprocess.PIPE)
+        ], stdin=subprocess.PIPE, pass_fds=pass_fds)
+        if a_r is not None:
+            os.close(a_r)             # parent drops the read end (ffmpeg owns it)
+            os.set_blocking(self._a_w, False)   # never block the SDK audio thread
 
     def _stop_ffmpeg(self):
+        if self._a_w is not None:
+            try:
+                os.close(self._a_w)
+            except Exception:
+                pass
+            self._a_w = None
         if self.ff:
             try:
                 if self.ff.stdin:
@@ -104,6 +128,17 @@ class VideoPipeline(IVideoFrameObserver):
             except Exception:
                 pass
             self.ff = None
+
+    def write_audio(self, pcm):
+        """Feed one PCM chunk (16-bit mono @ audio_rate) to ffmpeg. Non-blocking: drop if the
+        pipe is full so the SDK's audio thread never stalls."""
+        w = self._a_w
+        if w is None or not self.feeding:
+            return
+        try:
+            os.write(w, bytes(pcm))
+        except (BlockingIOError, BrokenPipeError, OSError):
+            pass
 
     # ---- camera switch ----
     def start_feed(self):

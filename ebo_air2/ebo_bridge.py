@@ -118,6 +118,7 @@ class Bridge:
         self.mqtt_conf = mqtt_conf
         self.video = None
         self.video_enabled = os.environ.get("EBO_VIDEO", "1") == "1"
+        self.audio_enabled = os.environ.get("EBO_AUDIO", "0") == "1"   # listen (optional)
         self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
         self.robot_uid = None            # the robot's RTC uid, learned on_user_joined
         self.connected = True            # master session switch: off => robot can sleep
@@ -189,12 +190,18 @@ class Bridge:
         # Decoded video path: auto-subscribe so the SDK DECODES the robot's H.265 to raw YUV
         # (this build decodes H.265 but its *encoded* observer segfaults). We re-encode the YUV
         # to H.264 for RTSP. auto_subscribe_video=1 is the stable config.
-        ccfg = RTCConnConfig(
-            auto_subscribe_audio=0,
+        ccfg_kw = dict(
+            auto_subscribe_audio=1 if self.audio_enabled else 0,
             auto_subscribe_video=1 if self.video_enabled else 0,
             client_role_type=ClientRoleType.CLIENT_ROLE_BROADCASTER,
             channel_profile=ChannelProfileType.CHANNEL_PROFILE_LIVE_BROADCASTING,
         )
+        if self.audio_enabled:
+            from agora.rtc.agora_base import AudioSubscriptionOptions
+            ccfg_kw["audio_subs_options"] = AudioSubscriptionOptions(
+                pcm_data_only=1, bytes_per_sample=2, number_of_channels=1,
+                sample_rate_hz=16000)
+        ccfg = RTCConnConfig(**ccfg_kw)
         pcfg = RtcConnectionPublishConfig(is_publish_audio=False, is_publish_video=False)
         self.rtc = svc.create_rtc_connection(ccfg, pcfg)
         self.rtc.register_observer(RtcObs())
@@ -228,8 +235,28 @@ class Bridge:
                 self.rtc.register_video_frame_observer(self.video)
                 self._observers_registered = True
                 log("[video] decoded (YUV) video observer registered")
+                if self.audio_enabled:
+                    self._register_audio_observer()
             except Exception as e:
                 log("[video] pipeline setup failed:", e)
+
+    def _register_audio_observer(self):
+        try:
+            from agora.rtc.audio_frame_observer import IAudioFrameObserver
+            pipeline = self.video
+
+            class AudioObs(IAudioFrameObserver):
+                def on_playback_audio_frame_before_mixing(o, lu, ch, uid, frame,
+                                                          vad_state=0, vad_bytes=None):
+                    try:
+                        pipeline.write_audio(frame.buffer)
+                    except Exception:
+                        pass
+                    return 0
+            self.rtc.register_audio_frame_observer(AudioObs(), 0, None)
+            log("[audio] PCM observer registered (listen)")
+        except Exception as e:
+            log("[audio] observer registration failed:", e)
 
     def _camera_feed(self, on):
         """Turn our RTSP feed on/off. The robot streams whenever we're present in RTC; this
