@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.13.0 — audio (listen), experimental
+- Optional **audio**: the robot's microphone (16 kHz mono PCM from the SDK) is muxed into the
+  camera stream as AAC, so the Generic Camera has **sound**. Enable with `audio: true` (needs
+  `video: true`). Off by default; if it ever misbehaves the safety net falls back to
+  control-only. Two-way *talk* is a separate future step.
+
 ## 0.12.1 — camera stream: fix timestamps ("No dts")
 - The re-encoded stream could produce timestamps HA's stream backend rejected ("No dts in N
   consecutive packets"). ffmpeg now timestamps incoming frames by arrival
