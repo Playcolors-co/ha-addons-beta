@@ -116,9 +116,7 @@ class Bridge:
         self.video_enabled = os.environ.get("EBO_VIDEO", "1") == "1"
         self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
         self.robot_uid = None            # the robot's RTC uid, learned on_user_joined
-        self._video_subscribed = False
-        self._encoded_mode = os.environ.get("EBO_VIDEO_ENCODED", "0") == "1"
-        # runtime camera switch: OFF by default so the robot is NOT kept in video mode.
+        # runtime camera switch: controls whether we re-publish the robot's video as RTSP.
         # (control needs RTC presence, but we only subscribe to the robot's video — which is
         # what puts it in video mode — when the user turns the camera switch on.)
         self.video_on = self.video_enabled
@@ -147,9 +145,11 @@ class Bridge:
             def on_user_joined(o, conn, uid):
                 self.robot_uid = str(uid)
                 log("[RTC] robot present:", uid)
-                # if the camera switch is on, subscribe now that we know the robot's uid
-                if self.video_on:
-                    self._subscribe_video()
+                if self.video_on and self.rtc:   # nudge a keyframe so video starts quickly
+                    try:
+                        self.rtc.send_intra_request(str(uid))
+                    except Exception:
+                        pass
 
         bridge = self
 
@@ -175,13 +175,12 @@ class Bridge:
         scfg = AgoraServiceConfig()
         scfg.appid = s["app_id"]
         svc.initialize(scfg)
-        # Never auto-subscribe: we join RTC for control presence, but we only subscribe to the
-        # robot's video (which puts it in video mode) when the camera switch is on. This keeps
-        # the robot idle by default. (auto_subscribe_video=0 alone does NOT crash; only a
-        # manual *encoded* subscribe can.)
+        # Decoded video path: auto-subscribe so the SDK DECODES the robot's H.265 to raw YUV
+        # (this build decodes H.265 but its *encoded* observer segfaults). We re-encode the YUV
+        # to H.264 for RTSP. auto_subscribe_video=1 is the stable config.
         ccfg = RTCConnConfig(
             auto_subscribe_audio=0,
-            auto_subscribe_video=0,
+            auto_subscribe_video=1 if self.video_enabled else 0,
             client_role_type=ClientRoleType.CLIENT_ROLE_BROADCASTER,
             channel_profile=ChannelProfileType.CHANNEL_PROFILE_LIVE_BROADCASTING,
         )
@@ -189,7 +188,6 @@ class Bridge:
         self.rtc = svc.create_rtc_connection(ccfg, pcfg)
         self.rtc.register_observer(RtcObs())
         self._observers_registered = False
-        self._video_subscribed = False
         self.rtc.connect(s["rtc_token"], s["rtc_channel"], s["rtc_uid"])
         for _ in range(20):
             if self.rtc_state:
@@ -197,93 +195,73 @@ class Bridge:
             time.sleep(0.5)
         log("[RTC] state:", self.rtc_state)
 
-        if self.video_on:                 # restore camera state across reconnects
-            self._subscribe_video()
+        if self.video_enabled:
+            self._setup_video_pipeline()
+            if self.video_on:            # restore camera state across reconnects
+                self._camera_feed(True)
 
     def _rtsp_url(self):
         host = self.host_ip or "<HOME-ASSISTANT-IP>"
         return "rtsp://%s:%d/ebo" % (host, self.rtsp_port)
 
     def _setup_video_pipeline(self):
-        """Start the RTSP server and register the frame observers (no subscription yet)."""
-        if self._observers_registered:
-            return
-        try:
-            import ebo_video
-            from agora.rtc.local_user_observer import IRTCLocalUserObserver
-            if not self.video:
-                self.video = ebo_video.VideoPipeline(rtsp_port=self.rtsp_port)
-            lu = self.rtc.get_local_user()
-
-            class VidObs(IRTCLocalUserObserver):
-                def on_user_video_track_subscribed(o, l, uid, info, track):
-                    log("[video] track subscribed from %s (codec %s)" % (
-                        uid, getattr(info, "codec_type", "?")))
-                def on_first_remote_video_frame(o, l, uid, w, h, e):
-                    log("[video] first remote frame %sx%s from %s" % (w, h, uid))
-            lu._register_local_user_observer(VidObs())
-            lu._register_video_encoded_frame_observer(self.video)
-            self._observers_registered = True
-        except Exception as e:
-            log("[video] pipeline setup failed:", e)
-
-    def _subscribe_video(self):
-        """Subscribe to the robot's video → the robot enters video mode and starts streaming.
-        Guarded by a lock: connect_agora and on_user_joined can call this concurrently."""
+        """Create the RTSP pipeline and register the DECODED (YUV) frame observer on the
+        connection — the SDK decodes H.265, we get YUV, ffmpeg re-encodes to H.264."""
         with self._video_lock:
-            if self._video_subscribed or not (self.robot_uid and self.rtc):
-                return
-            if not self._observers_registered:  # start RTSP server + observers on demand
-                self._setup_video_pipeline()
-            if not self.video:
+            if self._observers_registered:
                 return
             try:
-                from agora.rtc.agora_base import VideoSubscriptionOptions, VideoStreamType
-                opts = VideoSubscriptionOptions(
-                    type=VideoStreamType.VIDEO_STREAM_HIGH,
-                    encodedFrameOnly=self._encoded_mode)
-                self.rtc.get_local_user().subscribe_video(self.robot_uid, opts)
-                self._video_subscribed = True
-                log("[video] ON — subscribed to robot %s (%s). Camera stream: %s" % (
-                    self.robot_uid, "encoded" if self._encoded_mode else "decoded",
-                    self._rtsp_url()))
-                threading.Thread(target=self._keyframe_loop, daemon=True).start()
+                import ebo_video
+                if not self.video:
+                    self.video = ebo_video.VideoPipeline(rtsp_port=self.rtsp_port)
+                self.rtc.register_video_frame_observer(self.video)
+                self._observers_registered = True
+                log("[video] decoded (YUV) video observer registered")
             except Exception as e:
-                log("[video] subscribe failed:", e)
+                log("[video] pipeline setup failed:", e)
 
-    def _unsubscribe_video(self):
-        """Stop subscribing → the robot can leave video mode."""
-        if not self._video_subscribed:
+    def _camera_feed(self, on):
+        """Turn our RTSP feed on/off. The robot streams whenever we're present in RTC; this
+        just controls whether we re-publish it as RTSP."""
+        if not self.video:
+            self._setup_video_pipeline()
+        if not self.video:
             return
-        self._video_subscribed = False
-        try:
-            self.rtc.get_local_user().unsubscribe_video(self.robot_uid)
-            log("[video] OFF — unsubscribed; robot can leave video mode")
-        except Exception as e:
-            log("[video] unsubscribe failed:", e)
-
-    def _keyframe_loop(self):
-        started = time.time()
-        warned = False
-        while not self.stop.is_set() and self._video_subscribed and self.video:
-            got = self.video.frames
+        if on:
+            self.video.start_feed()
             if self.robot_uid:
                 try:
                     self.rtc.send_intra_request(self.robot_uid)
                 except Exception:
                     pass
-            if got == 0 and not warned and time.time() - started > 20:
-                warned = True
-                log("[video] ⚠ still 0 frames after 20s — the SDK isn't handing over the "
-                    "robot's encoded H.265. RTSP is up but empty.")
-            self.stop.wait(1 if got == 0 else 8)
+            log("[video] ON — camera stream: %s" % self._rtsp_url())
+            threading.Thread(target=self._video_diag, daemon=True).start()
+        else:
+            self.video.stop_feed()
+            log("[video] OFF — camera stream stopped")
+
+    def _video_diag(self):
+        """Nudge keyframes and warn if no decoded frames arrive."""
+        started = time.time()
+        warned = False
+        while not self.stop.is_set() and self.video and self.video.feeding:
+            if self.video.frames == 0:
+                if self.robot_uid:
+                    try:
+                        self.rtc.send_intra_request(self.robot_uid)
+                    except Exception:
+                        pass
+                if not warned and time.time() - started > 20:
+                    warned = True
+                    log("[video] ⚠ still 0 decoded frames after 20s — the robot may not be "
+                        "publishing, or the SDK isn't decoding. RTSP is up but empty.")
+                self.stop.wait(1)
+            else:
+                self.stop.wait(8)
 
     def set_camera(self, on):
         self.video_on = on
-        if on:
-            self._subscribe_video()
-        else:
-            self._unsubscribe_video()
+        self._camera_feed(on)
         self._publish_camera_state()
 
     def _opts(self):
