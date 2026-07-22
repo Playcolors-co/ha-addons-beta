@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.11.0 — more entities
+- New controls (verified against the app): **motion recording** (switch), **auto-record calls**
+  (switch), **cloud upload** (switch, privacy), **talkback volume** (number). The recording/
+  volume ones show real state from the robot's settings report.
+- Eyes/emoji, DND and other complex settings stay on the raw `ebo_air2/cmd` channel (they need
+  structured payloads) — see COMANDI.md.
+
 ## 0.10.0 — video CPU: resolution/quality options
 - The robot streams ~2304×1296 (2K); re-encoding that is CPU-heavy on a NUC. New options:
   `video_max_height` (default **720** — big CPU saving; set `0` for native 2K) and

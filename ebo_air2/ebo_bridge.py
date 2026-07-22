@@ -71,6 +71,10 @@ OP_LASER = 103051
 OP_SAY = 103501         # text-to-speech: {"userId":..,"text":".."} — robot speaks
 OP_SLEEP = 101047       # sleep/wake: {"isSleeping": bool} — no movement
 OP_VOLUME = 102023      # {"playbackVolume": int, "isPlaybackMuted": bool}
+OP_SPORTS_REC = 101049  # motion recording: {"sportsRecord": bool}
+OP_CALL_REC = 103071    # auto-record calls: {"callAutoRecording": int 0/1}
+OP_UPLOAD_CLOUD = 104099  # upload recordings to cloud: {"videoUploadCloud": bool}
+OP_TALKBACK_VOL = 102031  # {"talkbackVolume": int 0..100}
 OP_MOVE_MODE = 103011   # {"moveMode": int}
 OP_SHOOT_MODE = 102035  # {"shootMode": int}  (photo/video)
 OP_PLAY_MOTION = 103005  # {"cycleMode": int, "moveId": int} — preset motion (MOVES)
@@ -494,6 +498,30 @@ class Bridge:
             "name": "EBO volume", "command_topic": "%s/volume/set" % NODE,
             "min": 0, "max": 100, "step": 1, "optimistic": True,
             "icon": "mdi:volume-high"})
+        # talkback (mic) volume — has real state from settings
+        self._disc("number", "talkback_volume", {
+            "name": "EBO talkback volume", "command_topic": "%s/talkback_volume/set" % NODE,
+            "state_topic": st, "value_template": "{{ value_json.talkback_volume }}",
+            "min": 0, "max": 100, "step": 1, "icon": "mdi:microphone"})
+        # motion recording (records when it detects movement)
+        self._disc("switch", "sports_record", {
+            "name": "EBO motion recording", "state_topic": st,
+            "value_template": "{{ value_json.sports_record }}",
+            "command_topic": "%s/sports_record/set" % NODE,
+            "payload_on": "on", "payload_off": "off", "state_on": "true", "state_off": "false",
+            "icon": "mdi:motion-sensor"})
+        # auto-record calls
+        self._disc("switch", "call_rec", {
+            "name": "EBO auto-record calls", "state_topic": st,
+            "value_template": "{{ value_json.call_rec }}",
+            "command_topic": "%s/call_rec/set" % NODE,
+            "payload_on": "on", "payload_off": "off", "state_on": "true", "state_off": "false",
+            "icon": "mdi:record-rec"})
+        # upload recordings to the cloud (privacy) — optimistic (not in the status report)
+        self._disc("switch", "upload_cloud", {
+            "name": "EBO cloud upload", "command_topic": "%s/upload_cloud/set" % NODE,
+            "payload_on": "on", "payload_off": "off", "optimistic": True,
+            "icon": "mdi:cloud-upload"})
         # return to base (only works when the robot is away from the dock / not charging)
         self._disc("button", "dock", {
             "name": "EBO return to base", "command_topic": "%s/dock" % NODE,
@@ -521,6 +549,10 @@ class Bridge:
         c.subscribe("%s/sleep/set" % NODE)
         c.subscribe("%s/say" % NODE)
         c.subscribe("%s/volume/set" % NODE)
+        c.subscribe("%s/talkback_volume/set" % NODE)
+        c.subscribe("%s/sports_record/set" % NODE)
+        c.subscribe("%s/call_rec/set" % NODE)
+        c.subscribe("%s/upload_cloud/set" % NODE)
         c.subscribe("%s/dock" % NODE)
         c.subscribe("%s/patrol/route/set" % NODE)
         c.subscribe("%s/patrol/start" % NODE)
@@ -551,6 +583,17 @@ class Bridge:
             elif topic.endswith("/volume/set"):
                 self.send(OP_VOLUME, {"playbackVolume": int(float(payload)),
                                       "isPlaybackMuted": False})
+            elif topic.endswith("/talkback_volume/set"):
+                self.send(OP_TALKBACK_VOL, {"talkbackVolume": int(float(payload))})
+            elif topic.endswith("/sports_record/set"):
+                self.send(OP_SPORTS_REC,
+                          {"sportsRecord": payload.lower() in ("on", "true", "1")})
+            elif topic.endswith("/call_rec/set"):
+                self.send(OP_CALL_REC,
+                          {"callAutoRecording": 1 if payload.lower() in ("on", "true", "1") else 0})
+            elif topic.endswith("/upload_cloud/set"):
+                self.send(OP_UPLOAD_CLOUD,
+                          {"videoUploadCloud": payload.lower() in ("on", "true", "1")})
             elif topic.endswith("/dock"):
                 # start returning to the charging base (no-op if already charging)
                 self.send(OP_DOCK, {"startUp": True})
@@ -593,6 +636,9 @@ class Bridge:
             "recording": "true" if stt.get("isVideoRecording") else "false",
             "laser": "true" if stt.get("laserStatus") else "false",
             "speed": self.settings.get("moveSpeed"),
+            "talkback_volume": self.settings.get("talkbackVolume"),
+            "sports_record": "true" if self.settings.get("sportsRecord") else "false",
+            "call_rec": "true" if self.settings.get("callAutoRecording") else "false",
         }
         self.mqtt.publish("%s/state" % NODE, json.dumps(payload), retain=True)
 
