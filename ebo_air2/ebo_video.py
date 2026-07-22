@@ -65,12 +65,14 @@ class VideoPipeline(IVideoFrameObserver):
     def _start_ffmpeg(self, w, h):
         self._stop_ffmpeg()
         log("[video] starting ffmpeg %dx%d -> RTSP (H.264)" % (w, h))
+        gop = max(self.fps, 1) * 2       # a keyframe every ~2s so clients attach quickly
         self.ff = subprocess.Popen([
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-f", "rawvideo", "-pixel_format", "yuv420p",
             "-video_size", "%dx%d" % (w, h), "-framerate", str(self.fps),
             "-i", "pipe:0",
             "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+            "-g", str(gop), "-keyint_min", str(gop), "-sc_threshold", "0", "-bf", "0",
             "-pix_fmt", "yuv420p", "-an",
             "-f", "rtsp", "-rtsp_transport", "tcp", self.rtsp_url,
         ], stdin=subprocess.PIPE)

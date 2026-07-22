@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.9.2 — video works: fix client attach (keyframes)
+- 🎉 Live video works (H.265 decoded by the SDK → re-encoded to H.264 → RTSP). Fixed the
+  "Timeout while loading URL" when adding the camera: ffmpeg now emits a **keyframe every ~2s**
+  (`-g`, `-keyint_min`, no B-frames) so Home Assistant / VLC can attach immediately instead of
+  waiting up to ~16s for the default GOP.
+
 ## 0.9.1 — the missing video switch: enable_video=1
 - The decoded observer got 0 frames because the Agora **service** config was missing
   `enable_video = 1` (found in the official `example_video_yuv_receive.py`). Without it the SDK
