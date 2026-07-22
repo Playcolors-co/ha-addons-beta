@@ -1,4 +1,4 @@
-# Enabot integration — EBO Air 2
+# EBO Air 2
 
 Control your **Enabot EBO Air 2** from Home Assistant: battery, wifi, laser, speed,
 movement (forward/back/left/right) and a "vector" channel meant for driving it from an
@@ -25,8 +25,8 @@ No phone, no emulator.
 ## Installation
 
 1. Add the repository (see the [repository README](../README.md)):
-   `https://github.com/Playcolors-co/ha-addons`
-2. Find **Enabot integration** in the store and install it.
+   `https://github.com/Playcolors-co/ha-enabot`
+2. Find **EBO Air 2** in the store and install it.
 3. In the add-on's **Configuration** tab set:
    - `email` / `password` — your Enabot credentials
    - `region` — your account region (e.g. `GB`, `US`, `EU`)

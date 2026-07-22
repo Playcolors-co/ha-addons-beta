@@ -36,6 +36,9 @@ class VideoPipeline(IVideoFrameObserver):
         self.rtsp_port = rtsp_port
         self.rtsp_url = f"rtsp://127.0.0.1:{rtsp_port}/{path}"
         self.fps = fps
+        # downscale to cut CPU on the re-encode (0 = keep the robot's native resolution)
+        self.max_h = int(os.environ.get("EBO_VIDEO_MAX_HEIGHT", "720") or "0")
+        self.preset = os.environ.get("EBO_VIDEO_PRESET", "ultrafast")
         self.ff = None
         self.w = 0
         self.h = 0
@@ -64,14 +67,22 @@ class VideoPipeline(IVideoFrameObserver):
     # ---- ffmpeg: raw I420 in -> H.264 RTSP out ----
     def _start_ffmpeg(self, w, h):
         self._stop_ffmpeg()
-        log("[video] starting ffmpeg %dx%d -> RTSP (H.264)" % (w, h))
         gop = max(self.fps, 1) * 2       # a keyframe every ~2s so clients attach quickly
+        scale = []
+        if self.max_h and h > self.max_h:
+            scale = ["-vf", "scale=-2:%d" % self.max_h]   # keep aspect, even width
+            log("[video] starting ffmpeg %dx%d -> ~%dp H.264/RTSP (preset %s)"
+                % (w, h, self.max_h, self.preset))
+        else:
+            log("[video] starting ffmpeg %dx%d -> H.264/RTSP (preset %s)"
+                % (w, h, self.preset))
         self.ff = subprocess.Popen([
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-f", "rawvideo", "-pixel_format", "yuv420p",
             "-video_size", "%dx%d" % (w, h), "-framerate", str(self.fps),
             "-i", "pipe:0",
-            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+        ] + scale + [
+            "-c:v", "libx264", "-preset", self.preset, "-tune", "zerolatency",
             "-g", str(gop), "-keyint_min", str(gop), "-sc_threshold", "0", "-bf", "0",
             "-pix_fmt", "yuv420p", "-an",
             "-f", "rtsp", "-rtsp_transport", "tcp", self.rtsp_url,
