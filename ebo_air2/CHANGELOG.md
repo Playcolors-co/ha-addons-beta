@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.12.0 — "connected" switch + CI
+- **EBO connected** switch (default on): turn it **off** to fully leave the cloud session so
+  the robot can **sleep** (no control/telemetry while off); turn it back on to reconnect. MQTT
+  entities stay available throughout.
+- **CI:** a GitHub Actions workflow builds the add-on image on every push/PR, so build breaks
+  are caught before release.
+
 ## 0.11.0 — more entities
 - New controls (verified against the app): **motion recording** (switch), **auto-record calls**
   (switch), **cloud upload** (switch, privacy), **talkback volume** (number). The recording/

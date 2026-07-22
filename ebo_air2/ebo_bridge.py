@@ -120,6 +120,7 @@ class Bridge:
         self.video_enabled = os.environ.get("EBO_VIDEO", "1") == "1"
         self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
         self.robot_uid = None            # the robot's RTC uid, learned on_user_joined
+        self.connected = True            # master session switch: off => robot can sleep
         # runtime camera switch: controls whether we re-publish the robot's video as RTSP.
         # (control needs RTC presence, but we only subscribe to the robot's video — which is
         # what puts it in video mode — when the user turns the camera switch on.)
@@ -274,6 +275,51 @@ class Bridge:
         self._camera_feed(on)
         self._publish_camera_state()
 
+    def set_connected(self, on):
+        """Master session switch. OFF: leave the Agora session so the robot can sleep (no
+        control/telemetry). ON: reconnect. MQTT/entities stay up throughout."""
+        if on == self.connected:
+            self._publish_conn_state()
+            return
+        if on:
+            self.connected = True
+            log("[*] connecting session…")
+            try:
+                self.connect_agora()
+                self.send(OP_HANDSHAKE, {"userId": self.account})
+                time.sleep(1)
+                self.send(OP_GET_SETTINGS)
+                self.send(OP_GET_ROUTES)
+            except Exception as e:
+                log("[!] reconnect failed:", e)
+        else:
+            self.connected = False
+            log("[*] disconnecting session — robot can sleep")
+            try:
+                if self.video:
+                    self.video.stop_feed()
+            except Exception:
+                pass
+            try:
+                if self.rtc:
+                    self.rtc.disconnect()
+            except Exception:
+                pass
+            try:
+                if self.rtm:
+                    self.rtm.logout()
+            except Exception:
+                pass
+            self.rtm = None
+            self.rtc = None
+            self._observers_registered = False
+        self._publish_conn_state()
+
+    def _publish_conn_state(self):
+        if self.mqtt:
+            self.mqtt.publish("%s/connected/state" % NODE,
+                              "on" if self.connected else "off", retain=True)
+
     def _opts(self):
         return PublishOptions(
             channel_type=RtmChannelType.RTM_CHANNEL_TYPE_USER,
@@ -281,13 +327,19 @@ class Bridge:
         )
 
     def send(self, mid, data=None):
+        if not (self.connected and self.rtm):   # the "connected" switch is off
+            return
         msg = {"id": mid, "type": 0, "timestamp": time.time() * 1000}
         if self.sid:
             msg["sid"] = self.sid
         if data is not None:
             msg["data"] = data
         payload = json.dumps(msg, separators=(",", ":")).encode()
-        r, _ = self.rtm.publish(self.s["robot_rtm"], payload, self._opts())
+        try:
+            r, _ = self.rtm.publish(self.s["robot_rtm"], payload, self._opts())
+        except Exception as e:
+            log("[!] publish %s error: %s" % (mid, e))
+            return
         if r != 0:
             log("[!] publish %s failed: %s" % (mid, self.rtm.get_error_reason(r)))
 
@@ -535,6 +587,11 @@ class Bridge:
         self._disc("sensor", "camera_url", {
             "name": "EBO camera URL", "state_topic": "%s/camera/url" % NODE,
             "icon": "mdi:link-variant", "entity_category": "diagnostic"})
+        # master session switch: OFF disconnects from the cloud so the robot can sleep
+        self._disc("switch", "connected", {
+            "name": "EBO connected", "command_topic": "%s/connected/set" % NODE,
+            "state_topic": "%s/connected/state" % NODE,
+            "payload_on": "on", "payload_off": "off", "icon": "mdi:lan-connect"})
         # patrol: pick a route (auto = no route) and start it
         self._publish_patrol_select()
         self._disc("button", "patrol_start", {
@@ -557,7 +614,9 @@ class Bridge:
         c.subscribe("%s/patrol/route/set" % NODE)
         c.subscribe("%s/patrol/start" % NODE)
         c.subscribe("%s/camera/set" % NODE)
+        c.subscribe("%s/connected/set" % NODE)
         self._publish_camera_state()
+        self._publish_conn_state()
         # RAW escape hatch for an AI/automation: publish {"id":<opcode>,"data":{...}}
         # to ebo_air2/cmd to send ANY command from the full catalog (docs/COMANDI.md).
         c.subscribe("%s/cmd" % NODE)
@@ -604,6 +663,8 @@ class Bridge:
                 self._start_patrol()
             elif topic.endswith("/camera/set"):
                 self.set_camera(payload.lower() in ("on", "true", "1"))
+            elif topic.endswith("/connected/set"):
+                self.set_connected(payload.lower() in ("on", "true", "1"))
             elif topic.endswith("/cmd"):
                 # raw command from an AI/automation: {"id":<opcode>,"data":{...}}
                 obj = json.loads(payload)
@@ -724,7 +785,7 @@ class Bridge:
                 if time.time() - last_check < 30:
                     continue
                 last_check = time.time()
-                if self.provider and not self._token_age_ok():
+                if self.connected and self.provider and not self._token_age_ok():
                     self.refresh_session()
                     # reconnect Agora with the new tokens
                     try:
