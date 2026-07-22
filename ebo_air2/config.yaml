@@ -1,4 +1,4 @@
-name: Enabot integration
+name: EBO Air 2 (beta)
 version: "0.9.2"
 slug: ebo_air2
 description: Control and telemetry for the Enabot EBO Air 2 in Home Assistant (via Enabot cloud)
