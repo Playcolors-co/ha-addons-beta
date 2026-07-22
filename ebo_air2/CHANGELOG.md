@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.13.1 — audio fix + diagnostics
+- Audio didn't work because a required SDK call was missing:
+  `set_playback_audio_frame_before_mixing_parameters(1, 16000)` — without it the PCM callback
+  never fires. Added it (+ `audio_recv_media_packet=0`). The log now shows
+  `[audio] first PCM frame from …` when audio is flowing.
+- Silenced transient template warnings on the new entities (defaults).
+
 ## 0.13.0 — audio (listen), experimental
 - Optional **audio**: the robot's microphone (16 kHz mono PCM from the SDK) is muxed into the
   camera stream as AAC, so the Generic Camera has **sound**. Enable with `audio: true` (needs

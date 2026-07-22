@@ -198,9 +198,10 @@ class Bridge:
         )
         if self.audio_enabled:
             from agora.rtc.agora_base import AudioSubscriptionOptions
+            ccfg_kw["audio_recv_media_packet"] = 0
             ccfg_kw["audio_subs_options"] = AudioSubscriptionOptions(
-                pcm_data_only=1, bytes_per_sample=2, number_of_channels=1,
-                sample_rate_hz=16000)
+                packet_only=0, pcm_data_only=1, bytes_per_sample=2,
+                number_of_channels=1, sample_rate_hz=16000)
         ccfg = RTCConnConfig(**ccfg_kw)
         pcfg = RtcConnectionPublishConfig(is_publish_audio=False, is_publish_video=False)
         self.rtc = svc.create_rtc_connection(ccfg, pcfg)
@@ -244,11 +245,22 @@ class Bridge:
         try:
             from agora.rtc.audio_frame_observer import IAudioFrameObserver
             pipeline = self.video
+            lu = self.rtc.get_local_user()
+            # REQUIRED: without this the before-mixing callback never fires (1 ch, 16 kHz)
+            try:
+                lu.set_playback_audio_frame_before_mixing_parameters(1, 16000)
+            except Exception as e:
+                log("[audio] set params failed:", e)
 
             class AudioObs(IAudioFrameObserver):
-                def on_playback_audio_frame_before_mixing(o, lu, ch, uid, frame,
+                _n = [0]
+
+                def on_playback_audio_frame_before_mixing(o, l, ch, uid, frame,
                                                           vad_state=0, vad_bytes=None):
                     try:
+                        o._n[0] += 1
+                        if o._n[0] == 1:
+                            log("[audio] first PCM frame from %s" % uid)
                         pipeline.write_audio(frame.buffer)
                     except Exception:
                         pass
@@ -580,19 +592,19 @@ class Bridge:
         # talkback (mic) volume — has real state from settings
         self._disc("number", "talkback_volume", {
             "name": "EBO talkback volume", "command_topic": "%s/talkback_volume/set" % NODE,
-            "state_topic": st, "value_template": "{{ value_json.talkback_volume }}",
+            "state_topic": st, "value_template": "{{ value_json.talkback_volume | default('') }}",
             "min": 0, "max": 100, "step": 1, "icon": "mdi:microphone"})
         # motion recording (records when it detects movement)
         self._disc("switch", "sports_record", {
             "name": "EBO motion recording", "state_topic": st,
-            "value_template": "{{ value_json.sports_record }}",
+            "value_template": "{{ value_json.sports_record | default('false') }}",
             "command_topic": "%s/sports_record/set" % NODE,
             "payload_on": "on", "payload_off": "off", "state_on": "true", "state_off": "false",
             "icon": "mdi:motion-sensor"})
         # auto-record calls
         self._disc("switch", "call_rec", {
             "name": "EBO auto-record calls", "state_topic": st,
-            "value_template": "{{ value_json.call_rec }}",
+            "value_template": "{{ value_json.call_rec | default('false') }}",
             "command_topic": "%s/call_rec/set" % NODE,
             "payload_on": "on", "payload_off": "off", "state_on": "true", "state_off": "false",
             "icon": "mdi:record-rec"})
