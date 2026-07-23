@@ -18,7 +18,7 @@ Config via env:
   EBO_MQTT_HOST, EBO_MQTT_PORT=1883, EBO_MQTT_USER, EBO_MQTT_PASS
   (fallback: EBO_SESSION=/app/session.json)
 """
-from ebo_log import log          # MUST be first: silences the Agora SDK's stdout noise
+from ebo_log import log, raw     # MUST be first: silences the Agora SDK's stdout noise
 
 import json
 import os
@@ -89,7 +89,9 @@ RESP_ROUTES = 104002     # robot's reply: {"status", "list":[{id, routeName, rou
 PATROL_AUTO = "auto (no route)"
 
 DISCOVERY_PREFIX = "homeassistant"
-NODE = "ebo_air2"
+# per-robot: one add-on can run a bridge per robot, each with its own MQTT prefix / camera
+# path. Single robot keeps the classic "ebo_air2" so existing entities are untouched.
+NODE = os.environ.get("EBO_NODE", "ebo_air2")
 
 
 class Bridge:
@@ -120,6 +122,7 @@ class Bridge:
         self.video_enabled = os.environ.get("EBO_VIDEO", "1") == "1"
         self.audio_enabled = os.environ.get("EBO_AUDIO", "0") == "1"   # listen (optional)
         self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
+        self.rtsp_path = os.environ.get("EBO_RTSP_PATH", "ebo")
         self.robot_uid = None            # the robot's RTC uid, learned on_user_joined
         self.connected = True            # master session switch: off => robot can sleep
         # runtime camera switch: controls whether we re-publish the robot's video as RTSP.
@@ -221,7 +224,7 @@ class Bridge:
 
     def _rtsp_url(self):
         host = self.host_ip or "<HOME-ASSISTANT-IP>"
-        return "rtsp://%s:%d/ebo" % (host, self.rtsp_port)
+        return "rtsp://%s:%d/%s" % (host, self.rtsp_port, self.rtsp_path)
 
     def _setup_video_pipeline(self):
         """Create the RTSP pipeline and register the DECODED (YUV) frame observer on the
@@ -232,7 +235,8 @@ class Bridge:
             try:
                 import ebo_video
                 if not self.video:
-                    self.video = ebo_video.VideoPipeline(rtsp_port=self.rtsp_port)
+                    self.video = ebo_video.VideoPipeline(rtsp_port=self.rtsp_port,
+                                                         path=self.rtsp_path)
                 self.rtc.register_video_frame_observer(self.video)
                 self._observers_registered = True
                 log("[video] decoded (YUV) video observer registered")
@@ -446,9 +450,9 @@ class Bridge:
     def connect_mqtt(self):
         # paho-mqtt 2.x requires the callback API version; fall back for 1.x
         try:
-            c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="ebo_air2_bridge")
+            c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="%s_bridge" % NODE)
         except (AttributeError, TypeError):
-            c = mqtt.Client(client_id="ebo_air2_bridge")
+            c = mqtt.Client(client_id="%s_bridge" % NODE)
         if self.mqtt_conf.get("user"):
             c.username_pw_set(self.mqtt_conf["user"], self.mqtt_conf["pass"])
         c.on_connect = self._on_mqtt_connect
@@ -474,7 +478,7 @@ class Bridge:
     def _dev(self):
         return {
             "identifiers": [NODE],
-            "name": "EBO Air 2",
+            "name": os.environ.get("EBO_DEVICE_NAME", "EBO Air 2"),
             "manufacturer": "Enabot",
             "model": self.info.get("model", "EBO Air 2"),
             "sw_version": self.info.get("masterMcuVersion", ""),
@@ -881,7 +885,32 @@ def _make_provider():
     return provider, rid, first
 
 
+def discover_robots():
+    """Log in and return [(robot_id, robot_name)] for every robot on the account."""
+    c = ebo_cloud.EboCloud(host=os.environ.get("EBO_HOST", "ebox-eu.enabotserverintl.com"))
+    r = c.login(os.environ.get("EBO_EMAIL"), os.environ.get("EBO_PASSWORD"),
+                region=os.environ.get("EBO_REGION", "GB"))
+    if r.get("code") != 200:
+        raise RuntimeError("login failed: %s" % r.get("msg"))
+    out = []
+    for rb in c.robots().get("data", {}).get("list", []):
+        ri = rb.get("robot_info", {})
+        rid = ri.get("robot_id")
+        out.append((rid, ri.get("robot_name") or ("EBO %s" % rid)))
+    return out
+
+
 def main():
+    # discovery mode (used by run.sh to enumerate robots): print "id\tname" per robot to the
+    # real stdout, then exit.
+    if os.environ.get("EBO_DISCOVER") == "1":
+        try:
+            for rid, name in discover_robots():
+                raw("ROBOT\t%s\t%s" % (rid, name))
+        except Exception as e:
+            raw("ERR\t%s" % e)
+        return 0
+
     provider, robot_id, session = _make_provider()
     if session is None:
         sess_path = os.environ.get("EBO_SESSION", os.path.join(

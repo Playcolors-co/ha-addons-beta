@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.14.0 — multi-robot (experimental)
+- If your Enabot account has **more than one robot**, the add-on now runs **one bridge per
+  robot** automatically: each gets its own device/entities and its own camera on its own RTSP
+  port (8554, 8555, …). Set `robot_id: 0` to run all; a specific id runs just that one.
+- **Single-robot behaviour is unchanged** (same entities, same `rtsp://…:8554/ebo`).
+- Note: the multi-robot path is validated only in design (we can't test 2+ robots here) — if
+  you have several EBO and try it, feedback is very welcome.
+
 ## 0.13.5 — finer driving + joystick channel
 - **Gentler move buttons** (A): each tap is a shorter, smaller nudge — turns no longer spin
   ~90° per press, forward/back are softer.

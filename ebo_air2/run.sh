@@ -69,52 +69,69 @@ fi
 
 echo "[add-on] starting Enabot integration bridge (region ${EBO_REGION})"
 
-# Clean shutdown: when the Supervisor stops the add-on it sends SIGTERM. Forward it
-# to the bridge, wait for it to exit, and stop WITHOUT restarting (otherwise the
-# restart loop would sleep through the stop and get force-killed → "error").
-child=""
+# --- which robot(s) to run: a specific robot_id, or discover every robot on the account ---
+RIDS=(); RNAMES=()
+if [ -n "$EBO_ROBOT_ID" ]; then
+  RIDS=("$EBO_ROBOT_ID"); RNAMES=("EBO Air 2")
+else
+  DISC="$(EBO_DISCOVER=1 python /app/ebo_bridge.py 2>/dev/null)"
+  while IFS=$'\t' read -r tag id name; do
+    [ "$tag" = "ROBOT" ] && [ -n "$id" ] && { RIDS+=("$id"); RNAMES+=("$name"); }
+  done <<< "$DISC"
+fi
+NR=${#RIDS[@]}
+if [ "$NR" -eq 0 ]; then
+  # discovery failed (network/creds): fall back to a single default bridge (picks 1st robot)
+  RIDS=(""); RNAMES=("EBO Air 2"); NR=1
+fi
+[ "$NR" -gt 1 ] && echo "[add-on] ${NR} robots on the account — running one bridge each"
+
 stopping=0
 term() {
   stopping=1
   echo "[add-on] stopping…"
-  [ -n "$child" ] && kill -TERM "$child" 2>/dev/null
-  # give the bridge up to ~8s to close cleanly, then move on
+  pkill -TERM -f '/app/ebo_bridge.py' 2>/dev/null || true
   for _ in $(seq 1 16); do
-    kill -0 "$child" 2>/dev/null || break
+    pgrep -f '/app/ebo_bridge.py' >/dev/null 2>&1 || break
     sleep 0.5
   done
   exit 0
 }
 trap term SIGTERM SIGINT
 
-# Supervisor with a safety net: control and video share one Agora/RTC connection, so a
-# native video crash takes the whole bridge down. If that keeps happening, fall back to
-# control-only (video off) so the add-on never gets stuck in a crash loop.
-crashes=0
-while [ "$stopping" -eq 0 ]; do
-  start=$(date +%s)
-  python /app/ebo_bridge.py &
-  child=$!
-  wait "$child"
-  rc=$?
-  [ "$stopping" -eq 1 ] && break
-  ran=$(( $(date +%s) - start ))
+# Supervise ONE robot: restart on exit; after repeated quick crashes with A/V on, fall back
+# to control-only for that robot (control and video share one Agora connection).
+run_robot() {
+  local id="$1" idx="$2" name="$3" crashes=0 v="$EBO_VIDEO" a="$EBO_AUDIO"
+  while [ "$stopping" -eq 0 ]; do
+    local start; start=$(date +%s)
+    (
+      export EBO_VIDEO="$v" EBO_AUDIO="$a"
+      [ -n "$id" ] && export EBO_ROBOT_ID="$id"
+      if [ "$NR" -gt 1 ]; then          # per-robot identity only when there's more than one
+        export EBO_NODE="ebo_air2_${id}" EBO_RTSP_PATH="ebo_${id}" \
+               EBO_RTSP_PORT="$((8554 + idx))" EBO_DEVICE_NAME="$name"
+      fi
+      exec python /app/ebo_bridge.py
+    ) &
+    wait $!; local rc=$?
+    [ "$stopping" -eq 1 ] && break
+    local ran=$(( $(date +%s) - start ))
+    if [ "$ran" -lt 60 ] && { [ "$rc" -ge 128 ] || [ "$rc" -ne 0 ]; }; then
+      crashes=$(( crashes + 1 ))
+    else
+      crashes=0
+    fi
+    if [ "$crashes" -ge 2 ] && { [ "$v" != "0" ] || [ "$a" = "1" ]; }; then
+      echo "[add-on] robot ${id:-single} crashed ${crashes}× with A/V — control only."
+      v=0; a=0; crashes=0
+    fi
+    echo "[add-on] bridge (${id:-single}) exited (rc=${rc}), restarting in 15s…"
+    sleep 15 & wait $!
+  done
+}
 
-  # a quick exit (<60s) with a crash code counts as a crash; a long run resets the counter
-  if [ "$ran" -lt 60 ] && { [ "$rc" -ge 128 ] || [ "$rc" -ne 0 ]; }; then
-    crashes=$(( crashes + 1 ))
-  else
-    crashes=0
-  fi
-
-  if [ "$crashes" -ge 2 ] && { [ "${EBO_VIDEO}" != "0" ] || [ "${EBO_AUDIO}" = "1" ]; }; then
-    echo "[add-on] bridge crashed ${crashes}× quickly with A/V ON — disabling video+audio and continuing with control only."
-    export EBO_VIDEO=0
-    export EBO_AUDIO=0
-    crashes=0
-  fi
-
-  echo "[add-on] bridge exited (rc=${rc}), restarting in 15s…"
-  sleep 15 &
-  wait $!
+for i in "${!RIDS[@]}"; do
+  run_robot "${RIDS[$i]}" "$i" "${RNAMES[$i]}" &
 done
+wait

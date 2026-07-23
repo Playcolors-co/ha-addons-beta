@@ -4,7 +4,7 @@ FROM ${BUILD_FROM}
 # Required tools: jq + curl are used by run.sh (options + Supervisor MQTT). ca-certificates
 # for TLS. Keep this step minimal so an update rebuild rarely fails here.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends jq curl ca-certificates \
+    && apt-get install -y --no-install-recommends jq curl ca-certificates procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Core Python deps (required). Retry so a flaky network doesn't break the build.
