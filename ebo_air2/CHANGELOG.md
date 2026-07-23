@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.16.0 — audio: decode the robot's mic codec
+- The robot streams its microphone with a **custom telephony codec** (Agora audio payload
+  type 8/9), not the default. The bridge now tells the Agora engine to decode it
+  (`che.audio.codec_unfallback:[0,8,9]` + `custom_payload_type`) exactly like the app does —
+  without this the PCM observer received **0 frames** (why audio never worked).
+- Enable with `audio: true` (+ `video: true`). Watch the log for `[audio] first PCM frame`.
+- If you still hear nothing, tell me: I'll switch the payload type 8↔9 (the app uses both).
+
 ## 0.15.2 — diagnose image-style / call-recording read-back
 - Added a **debug log of the raw settings report** (`log_level: debug` → line `[settings] {...}`)
   to see exactly which fields the robot echoes. `image style` and `auto-record calls` set the

@@ -235,6 +235,19 @@ class Bridge:
         self.rtc = svc.create_rtc_connection(ccfg, pcfg)
         self.rtc.register_observer(RtcObs())
         self._observers_registered = False
+        # AUDIO: the robot publishes its mic with a custom telephony codec (Agora payload
+        # type 8/9). The app sets che.audio.codec_unfallback:[0,8,9] + custom_payload_type so
+        # the engine decodes it; without this the PCM observer gets 0 frames. Do the same.
+        if self.audio_enabled:
+            try:
+                p = self.rtc.get_agora_parameter()
+                for kv in ('{"che.audio.codec_unfallback":[0,8,9]}',
+                           '{"che.audio.custom_payload_type":8}',
+                           '{"che.audio.aec.enable":false}'):
+                    p.set_parameters(kv)
+                log("[audio] engine params set (codec_unfallback [0,8,9], payload_type 8)")
+            except Exception as e:
+                log("[audio] set_parameters failed:", e)
         self.rtc.connect(s["rtc_token"], s["rtc_channel"], s["rtc_uid"])
         for _ in range(20):
             if self.rtc_state:
