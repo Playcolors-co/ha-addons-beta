@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.13.5 — finer driving + joystick channel
+- **Gentler move buttons** (A): each tap is a shorter, smaller nudge — turns no longer spin
+  ~90° per press, forward/back are softer.
+- **Joystick channel** (B): new MQTT topic `ebo_air2/joystick` accepting `{"x":-1..1,"y":-1..1}`
+  for smooth, continuous driving from a joystick card (x = turn, y = forward). Pair it with the
+  EBO joystick Lovelace card. (Cloud latency still applies.)
+
 ## 0.13.4 — much lower video latency
 - The stream lagged because ffmpeg was forced to 15 fps (`-r`/`-vsync cfr`) while the robot
   sends ~25 fps → it buffered and dropped frames. Now it passes the real frame rate through

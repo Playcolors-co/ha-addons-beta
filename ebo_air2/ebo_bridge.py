@@ -643,6 +643,7 @@ class Bridge:
         c.subscribe("%s/move/+" % NODE)
         # canale generico per un agente: JSON {"ly":-50,"rx":0,"hold":1.0}
         c.subscribe("%s/move/vector" % NODE)
+        c.subscribe("%s/joystick" % NODE)      # {"x":-1..1,"y":-1..1} from a joystick card
         c.subscribe("%s/sleep/set" % NODE)
         c.subscribe("%s/say" % NODE)
         c.subscribe("%s/volume/set" % NODE)
@@ -711,16 +712,26 @@ class Bridge:
                 mid = int(obj["id"])
                 self.send(mid, obj.get("data"))
                 log("[MQTT] raw cmd id=%s sent" % mid)
+            elif topic.endswith("/joystick"):
+                # continuous control: {"x":-1..1,"y":-1..1} from a joystick card.
+                # x = turn (right +), y = forward (+). Held ~0.4s; the card resends while
+                # dragging, the watchdog stops it on release.
+                j = json.loads(payload)
+                x = max(-1.0, min(1.0, float(j.get("x", 0))))
+                y = max(-1.0, min(1.0, float(j.get("y", 0))))
+                self.set_move(0, int(-y * 100), int(x * 100), hold=0.4)
             elif "/move/" in topic:
                 d = topic.rsplit("/", 1)[-1]
-                mag = 60
+                # gentle nudges for the buttons: forward/back softer, turns smaller so
+                # left/right don't spin ~90° each tap.
+                mv, tn = 50, 35
                 mapping = {
-                    "forward": (0, -mag, 0), "back": (0, mag, 0),
-                    "left": (0, 0, -mag), "right": (0, 0, mag), "stop": (0, 0, 0),
+                    "forward": (0, -mv, 0), "back": (0, mv, 0),
+                    "left": (0, 0, -tn), "right": (0, 0, tn), "stop": (0, 0, 0),
                 }
                 if d in mapping:
                     lx, ly, rx = mapping[d]
-                    self.set_move(lx, ly, rx, hold=0.8)
+                    self.set_move(lx, ly, rx, hold=0.35)
         except Exception as e:
             log("[MQTT] command error %s: %s" % (topic, e))
 
