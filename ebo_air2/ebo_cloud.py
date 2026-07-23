@@ -13,7 +13,9 @@ import json
 import http.cookiejar
 import urllib.request
 
-import base64, os as _os, secrets as _secrets
+import base64
+import os as _os
+import secrets as _secrets
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import ebo_sign
 

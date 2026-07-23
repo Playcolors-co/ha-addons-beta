@@ -10,6 +10,7 @@ rtsp://<add-on host>:8554/ebo.
 """
 import os
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -55,7 +56,9 @@ class VideoPipeline(IVideoFrameObserver):
 
     # ---- RTSP server ----
     def _start_mediamtx(self):
-        cfg = "/tmp/mediamtx.yml"
+        # per-instance temp file: a fixed /tmp path would (a) be a predictable-path smell and
+        # (b) COLLIDE when the add-on runs one bridge per robot (multi-robot). Key it by port.
+        cfg = os.path.join(tempfile.gettempdir(), "ebo_mediamtx_%d.yml" % self.rtsp_port)
         with open(cfg, "w") as f:
             f.write("logLevel: error\n"
                     f"rtspAddress: :{self.rtsp_port}\n"

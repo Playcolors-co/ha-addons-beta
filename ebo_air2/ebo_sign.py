@@ -21,9 +21,9 @@ _ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
 
 def _nonce(n=8):
-    # alphanumeric nonce; does not need to be cryptographically strong
-    import random
-    return "".join(random.choice(_ALPHABET) for _ in range(n))
+    # alphanumeric nonce; use secrets (CSPRNG) so it's clean under security scanners
+    import secrets
+    return "".join(secrets.choice(_ALPHABET) for _ in range(n))
 
 
 def sign(method: str, path: str, query: str = "", body: bytes = b"",

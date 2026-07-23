@@ -284,7 +284,7 @@ class Bridge:
             class AudioObs(IAudioFrameObserver):
                 _n = [0]
 
-                def on_playback_audio_frame_before_mixing(o, l, ch, uid, frame,
+                def on_playback_audio_frame_before_mixing(o, length, ch, uid, frame,
                                                           vad_state=0, vad_bytes=None):
                     try:
                         o._n[0] += 1

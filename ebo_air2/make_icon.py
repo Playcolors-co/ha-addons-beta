@@ -91,7 +91,7 @@ d=ImageDraw.Draw(logo)
 def font(sz):
     for p in ["/System/Library/Fonts/SFNSRounded.ttf","/System/Library/Fonts/HelveticaNeue.ttc","/System/Library/Fonts/Helvetica.ttc","/Library/Fonts/Arial.ttf"]:
         try: return ImageFont.truetype(p, sz)
-        except: pass
+        except Exception: pass
     return ImageFont.load_default()
 tx=(LH-20)*S2
 d.text((tx, 90*S2), "EBO Air 2", font=font(150), fill=(238,246,247,255))

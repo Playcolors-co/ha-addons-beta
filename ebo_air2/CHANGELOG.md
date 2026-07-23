@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.15.1 — hardening + multi-robot fix
+- Fix: the RTSP config file used a fixed `/tmp/mediamtx.yml` path that **collided** when the
+  add-on runs one bridge per robot (multi-robot). Now per-instance (keyed by RTSP port).
+- Security/quality: added an automated **security + lint pipeline** (ruff, bandit SAST,
+  pip-audit dependency CVE scan) — all clean; nonce generation moved to a CSPRNG.
+- No functional/entity changes vs 0.15.0.
+
 ## 0.15.0 — full control catalog + rich telemetry
 Mapped the **entire command set** from the app (112 commands, see `docs/COMANDI-APK.md`) and
 exposed the useful ones as first-class Home Assistant entities.
