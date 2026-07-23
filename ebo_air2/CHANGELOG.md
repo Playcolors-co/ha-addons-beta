@@ -1,5 +1,22 @@
 # Changelog — Enabot integration
 
+## 0.15.0 — full control catalog + rich telemetry
+Mapped the **entire command set** from the app (112 commands, see `docs/COMANDI-APK.md`) and
+exposed the useful ones as first-class Home Assistant entities.
+
+- **New controls**: rotate by angle, video quality (Low/Medium/High), image style, shoot mode,
+  move mode, eyes/emoji mode, autonomous roaming, AI subject tracking, play a preset
+  motion/voice by id, and **ask the built-in AI** a question (Air 2 has an LLM agent).
+- **New sensors** (from the robot's status report): SD card present + free/total, internal
+  storage free, docked, guard/safe mode, current **activity** (moving / charging / AI-tracking /
+  on a call / upgrading…), plus diagnostics: camera & MCU **firmware versions**, robot **IP**
+  and **WiFi SSID**.
+- The camera-setting selects (quality/style/mode) show and set the robot's real current value.
+- Everything still routes over Agora RTM, the same channel as before. The raw `ebo_air2/cmd`
+  escape hatch remains for any opcode not given its own entity.
+- A few controls with complex payloads (eyes, AI track, ask-AI, roaming) are best-effort from
+  the decompiled builder; if one misbehaves, the raw `cmd` channel gives exact control.
+
 ## 0.14.0 — multi-robot (experimental)
 - If your Enabot account has **more than one robot**, the add-on now runs **one bridge per
   robot** automatically: each gets its own device/entities and its own camera on its own RTSP

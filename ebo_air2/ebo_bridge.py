@@ -83,6 +83,31 @@ OP_DOCK = 103043         # manual return-to-base / start charging: {"startUp": b
 OP_PATROL = 103061       # start patrol: {"mode","trackTarget","routeId","voiceId"} (MOVES)
 OP_GET_ROUTES = 104001   # ask the robot for the saved patrol routes
 RESP_ROUTES = 104002     # robot's reply: {"status", "list":[{id, routeName, routeFile}]}
+
+# --- extra controls mapped from the decompiled command builder (docs/COMANDI-APK.md) ---
+OP_ROTATE = 103001        # {"angle": int} — rotate the head/body by an angle
+OP_VIDEO_QUALITY = 102055  # {"videoQuality": int}  3=High 2=Medium 1=Low
+OP_IMAGE_STYLE = 102057   # {"imageStyle": int}  0/1/2
+OP_PLAY_VOICE = 103007    # {"cycleMode": int, "voiceId": int}
+OP_ROAM = 101061          # {"isRoamOn": bool, "sensitivity": int} — autonomous roaming
+OP_AI_TRACK = 103049      # StartAiTrackData {"mode": int, "trackTarget": int}
+OP_EYES = 104057          # EyesEmojiModeData {"status","mode",...}
+OP_AI_ASK = 103301        # AI chat: {"modelType","session","question","userId"}
+
+# value tables (from the app's UI): name shown in HA -> integer sent to the robot
+VIDEO_QUALITY_MAP = {"Low": 1, "Medium": 2, "High": 3}
+IMAGE_STYLE_MAP = {"Standard": 0, "Vivid": 1, "Soft": 2}
+SHOOT_MODE_MAP = {"Normal": 0, "Wide": 1, "Follow": 2}
+MOVE_MODE_MAP = {"Mode 1": 0, "Mode 2": 1, "Mode 3": 2}
+EYES_MODE_MAP = {"Dynamic": 0, "Clock": 1, "Custom": 2}
+
+
+def _rev(m, v):
+    """Reverse a value map: integer -> display name (or None)."""
+    for k, iv in m.items():
+        if iv == v:
+            return k
+    return None
 # patrol mode 0 = auto (no route, routeId -1); mode 1 = follow a saved route (needs routeId).
 # trackTarget is hard-coded to 7 in the app for both. AI tracking (103049) stays raw-only
 # (it's interactive: pick a subject {mode,trackTarget}) — see COMANDI.md.
@@ -407,6 +432,7 @@ class Bridge:
             self._publish_settings()
         elif mid == OP_INFO:
             self.info = data
+            self._publish_telemetry()      # refresh fw/ip/ssid diagnostic sensors
         elif mid == RESP_ROUTES:
             lst = data.get("list") or []
             self.routes = [(r.get("routeName") or ("route %s" % r.get("id")),
@@ -642,6 +668,100 @@ class Bridge:
             "name": "EBO start patrol", "command_topic": "%s/patrol/start" % NODE,
             "icon": "mdi:play-circle-outline"})
 
+        # ---- extra controls from the full command catalog (docs/COMANDI-APK.md) ----
+        # rotate by an angle (degrees). A number that sends 103001 on change.
+        self._disc("number", "rotate", {
+            "name": "EBO rotate", "command_topic": "%s/rotate/set" % NODE,
+            "min": -180, "max": 180, "step": 5, "optimistic": True,
+            "unit_of_measurement": "°", "icon": "mdi:rotate-right"})
+        # camera: video quality / image style / shoot mode (real state from settings)
+        self._disc("select", "video_quality", {
+            "name": "EBO video quality", "command_topic": "%s/video_quality/set" % NODE,
+            "state_topic": st, "value_template": "{{ value_json.video_quality | default('') }}",
+            "options": list(VIDEO_QUALITY_MAP.keys()), "icon": "mdi:high-definition"})
+        self._disc("select", "image_style", {
+            "name": "EBO image style", "command_topic": "%s/image_style/set" % NODE,
+            "state_topic": st, "value_template": "{{ value_json.image_style | default('') }}",
+            "options": list(IMAGE_STYLE_MAP.keys()), "icon": "mdi:image-filter-vintage"})
+        self._disc("select", "shoot_mode", {
+            "name": "EBO shoot mode", "command_topic": "%s/shoot_mode/set" % NODE,
+            "state_topic": st, "value_template": "{{ value_json.shoot_mode | default('') }}",
+            "options": list(SHOOT_MODE_MAP.keys()), "icon": "mdi:camera-iris"})
+        self._disc("select", "move_mode", {
+            "name": "EBO move mode", "command_topic": "%s/move_mode/set" % NODE,
+            "state_topic": st, "value_template": "{{ value_json.move_mode | default('') }}",
+            "options": list(MOVE_MODE_MAP.keys()), "icon": "mdi:cog-transfer"})
+        self._disc("select", "eyes", {
+            "name": "EBO eyes", "command_topic": "%s/eyes/set" % NODE,
+            "options": list(EYES_MODE_MAP.keys()), "optimistic": True, "icon": "mdi:eye"})
+        # autonomous roaming
+        self._disc("switch", "roaming", {
+            "name": "EBO roaming", "command_topic": "%s/roaming/set" % NODE,
+            "payload_on": "on", "payload_off": "off", "optimistic": True,
+            "icon": "mdi:radar"})
+        # AI subject tracking (starts tracking a person/pet in view)
+        self._disc("button", "ai_track", {
+            "name": "EBO AI track", "command_topic": "%s/ai_track" % NODE,
+            "icon": "mdi:target-account"})
+        # play a preset motion / voice by id (0-based; handy for automations)
+        self._disc("number", "motion_preset", {
+            "name": "EBO play motion", "command_topic": "%s/motion/set" % NODE,
+            "min": 0, "max": 30, "step": 1, "optimistic": True, "icon": "mdi:run"})
+        self._disc("number", "voice_preset", {
+            "name": "EBO play voice", "command_topic": "%s/voice/set" % NODE,
+            "min": 0, "max": 30, "step": 1, "optimistic": True, "icon": "mdi:account-voice"})
+        # ask the built-in AI a question (Air 2 has an LLM agent)
+        self._disc("text", "ai_ask", {
+            "name": "EBO ask AI", "command_topic": "%s/ai_ask" % NODE,
+            "icon": "mdi:robot-happy"})
+
+        # ---- extra telemetry sensors (from the 101026 status report) ----
+        self._disc("binary_sensor", "sd_present", {
+            "name": "EBO SD card", "state_topic": st,
+            "value_template": "{{ value_json.sd_present | default('false') }}",
+            "payload_on": "true", "payload_off": "false", "device_class": "connectivity",
+            "entity_category": "diagnostic"})
+        self._disc("sensor", "sd_free", {
+            "name": "EBO SD free", "state_topic": st,
+            "value_template": "{{ value_json.sd_free | default('') }}",
+            "unit_of_measurement": "GB", "icon": "mdi:sd", "entity_category": "diagnostic"})
+        self._disc("sensor", "sd_total", {
+            "name": "EBO SD total", "state_topic": st,
+            "value_template": "{{ value_json.sd_total | default('') }}",
+            "unit_of_measurement": "GB", "icon": "mdi:sd", "entity_category": "diagnostic"})
+        self._disc("sensor", "storage_free", {
+            "name": "EBO storage free", "state_topic": st,
+            "value_template": "{{ value_json.storage_free | default('') }}",
+            "unit_of_measurement": "GB", "icon": "mdi:harddisk", "entity_category": "diagnostic"})
+        self._disc("binary_sensor", "docked", {
+            "name": "EBO docked", "state_topic": st,
+            "value_template": "{{ value_json.docked | default('false') }}",
+            "payload_on": "true", "payload_off": "false", "icon": "mdi:home-import-outline"})
+        self._disc("binary_sensor", "safe_mode", {
+            "name": "EBO guard mode", "state_topic": st,
+            "value_template": "{{ value_json.safe_mode | default('false') }}",
+            "payload_on": "true", "payload_off": "false", "device_class": "safety"})
+        self._disc("sensor", "task", {
+            "name": "EBO activity", "state_topic": st,
+            "value_template": "{{ value_json.task | default('idle') }}", "icon": "mdi:state-machine"})
+        # ---- device info (from the 101004 system-info report) — diagnostic ----
+        self._disc("sensor", "fw_ipc", {
+            "name": "EBO firmware (camera)", "state_topic": st,
+            "value_template": "{{ value_json.fw_ipc | default('') }}",
+            "icon": "mdi:chip", "entity_category": "diagnostic"})
+        self._disc("sensor", "fw_mcu", {
+            "name": "EBO firmware (MCU)", "state_topic": st,
+            "value_template": "{{ value_json.fw_mcu | default('') }}",
+            "icon": "mdi:chip", "entity_category": "diagnostic"})
+        self._disc("sensor", "robot_ip", {
+            "name": "EBO IP", "state_topic": st,
+            "value_template": "{{ value_json.ip | default('') }}",
+            "icon": "mdi:ip-network", "entity_category": "diagnostic"})
+        self._disc("sensor", "robot_ssid", {
+            "name": "EBO WiFi SSID", "state_topic": st,
+            "value_template": "{{ value_json.ssid | default('') }}",
+            "icon": "mdi:wifi", "entity_category": "diagnostic"})
+
         c.subscribe("%s/laser/set" % NODE)
         c.subscribe("%s/speed/set" % NODE)
         c.subscribe("%s/move/+" % NODE)
@@ -660,6 +780,11 @@ class Bridge:
         c.subscribe("%s/patrol/start" % NODE)
         c.subscribe("%s/camera/set" % NODE)
         c.subscribe("%s/connected/set" % NODE)
+        # extra controls
+        for topic in ("rotate/set", "video_quality/set", "image_style/set",
+                      "shoot_mode/set", "move_mode/set", "eyes/set", "roaming/set",
+                      "ai_track", "motion/set", "voice/set", "ai_ask"):
+            c.subscribe("%s/%s" % (NODE, topic))
         self._publish_camera_state()
         self._publish_conn_state()
         # RAW escape hatch for an AI/automation: publish {"id":<opcode>,"data":{...}}
@@ -710,6 +835,31 @@ class Bridge:
                 self.set_camera(payload.lower() in ("on", "true", "1"))
             elif topic.endswith("/connected/set"):
                 self.set_connected(payload.lower() in ("on", "true", "1"))
+            elif topic.endswith("/rotate/set"):
+                self.send(OP_ROTATE, {"angle": int(float(payload))})
+            elif topic.endswith("/video_quality/set"):
+                self.send(OP_VIDEO_QUALITY, {"videoQuality": VIDEO_QUALITY_MAP.get(payload, 2)})
+            elif topic.endswith("/image_style/set"):
+                self.send(OP_IMAGE_STYLE, {"imageStyle": IMAGE_STYLE_MAP.get(payload, 0)})
+            elif topic.endswith("/shoot_mode/set"):
+                self.send(OP_SHOOT_MODE, {"shootMode": SHOOT_MODE_MAP.get(payload, 0)})
+            elif topic.endswith("/move_mode/set"):
+                self.send(OP_MOVE_MODE, {"moveMode": MOVE_MODE_MAP.get(payload, 0)})
+            elif topic.endswith("/eyes/set"):
+                self.send(OP_EYES, {"status": 0, "mode": EYES_MODE_MAP.get(payload, 0)})
+            elif topic.endswith("/roaming/set"):
+                on = payload.lower() in ("on", "true", "1")
+                self.send(OP_ROAM, {"isRoamOn": on, "sensitivity": 5})
+            elif topic.endswith("/ai_track"):
+                self.send(OP_AI_TRACK, {"mode": 0, "trackTarget": 7})
+            elif topic.endswith("/motion/set"):
+                self.send(OP_PLAY_MOTION, {"cycleMode": 0, "moveId": int(float(payload))})
+            elif topic.endswith("/voice/set"):
+                self.send(OP_PLAY_VOICE, {"cycleMode": 0, "voiceId": int(float(payload))})
+            elif topic.endswith("/ai_ask"):
+                if payload:
+                    self.send(OP_AI_ASK, {"modelType": 0, "session": "",
+                                          "question": payload, "userId": self.account})
             elif topic.endswith("/cmd"):
                 # raw command from an AI/automation: {"id":<opcode>,"data":{...}}
                 obj = json.loads(payload)
@@ -745,18 +895,68 @@ class Bridge:
         t = self.telemetry
         b = t.get("battery", {})
         stt = t.get("status", {})
+        sd = t.get("sdcard", {})
+        stor = t.get("storage", {})
+        se = self.settings
+        info = self.info
+
+        def gb(x):
+            try:
+                return round(float(x) / 1e9, 1)
+            except (TypeError, ValueError):
+                return None
+
         payload = {
             "battery": b.get("percentage"),
             "charging": "true" if b.get("chargeStatus") else "false",
             "wifi": t.get("wifiStrength"),
             "recording": "true" if stt.get("isVideoRecording") else "false",
             "laser": "true" if stt.get("laserStatus") else "false",
-            "speed": self.settings.get("moveSpeed"),
-            "talkback_volume": self.settings.get("talkbackVolume"),
-            "sports_record": "true" if self.settings.get("sportsRecord") else "false",
-            "call_rec": "true" if self.settings.get("callAutoRecording") else "false",
+            "speed": se.get("moveSpeed"),
+            "talkback_volume": se.get("talkbackVolume"),
+            "sports_record": "true" if se.get("sportsRecord") else "false",
+            "call_rec": "true" if se.get("callAutoRecording") else "false",
+            # camera / movement settings (current values feed the selects)
+            "video_quality": _rev(VIDEO_QUALITY_MAP, se.get("videoQuality")),
+            "image_style": _rev(IMAGE_STYLE_MAP, se.get("imageStyle")),
+            "shoot_mode": _rev(SHOOT_MODE_MAP, se.get("shootMode")),
+            "move_mode": _rev(MOVE_MODE_MAP, se.get("moveMode")),
+            # storage
+            "sd_present": "true" if sd.get("isPresent") else "false",
+            "sd_free": gb(sd.get("availableBytes")),
+            "sd_total": gb(sd.get("capacityBytes")),
+            "storage_free": gb(stor.get("availableBytes")),
+            # dock / guard
+            "docked": "true" if b.get("adapterStatus", -1) != -1 else "false",
+            "safe_mode": "true" if stt.get("safeMode") else "false",
+            "task": self._task_label(t.get("tasks"), stt, b),
+            # device info (101004)
+            "fw_ipc": info.get("ipcVersion", ""),
+            "fw_mcu": info.get("masterMcuVersion", ""),
+            "ip": info.get("ip", ""),
+            "ssid": info.get("wifiSsid", ""),
         }
         self.mqtt.publish("%s/state" % NODE, json.dumps(payload), retain=True)
+
+    _TASK_LABELS = {1: "moving", 6: "AI tracking", 7: "on a call", 8: "shared view",
+                    9: "guard mode", 10: "charging", 11: "upgrading"}
+
+    def _task_label(self, tasks, stt, b):
+        """Human-readable current activity from the tasks[] array / status flags."""
+        if b.get("adapterStatus", -1) != -1 and (b.get("percentage") or 0) < 100:
+            base = "charging"
+        else:
+            base = "idle"
+        try:
+            for task in (tasks or []):
+                tid = task.get("taskId")
+                if tid in self._TASK_LABELS:
+                    return self._TASK_LABELS[tid]
+        except Exception:
+            pass
+        if stt.get("safeMode"):
+            return "guard mode"
+        return base
 
     def _publish_settings(self):
         # merges moveSpeed into the state
