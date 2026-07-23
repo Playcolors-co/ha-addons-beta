@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.15.2 — diagnose image-style / call-recording read-back
+- Added a **debug log of the raw settings report** (`log_level: debug` → line `[settings] {...}`)
+  to see exactly which fields the robot echoes. `image style` and `auto-record calls` set the
+  correct command (verified) but didn't reflect in state — this pins down whether it's a
+  read-back gap or a condition (e.g. image style may need the camera stream active).
+- No entity/behaviour change.
+
 ## 0.15.1 — hardening + multi-robot fix
 - Fix: the RTSP config file used a fixed `/tmp/mediamtx.yml` path that **collided** when the
   add-on runs one bridge per robot (multi-robot). Now per-instance (keyed by RTSP port).

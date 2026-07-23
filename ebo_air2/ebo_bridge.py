@@ -429,6 +429,9 @@ class Bridge:
             self._publish_telemetry()
         elif mid == OP_SETTINGS:
             self.settings = data
+            # debug: show exactly which fields the robot reports (e.g. is imageStyle /
+            # callAutoRecording echoed back?) — helps diagnose read-back gaps.
+            log("[settings] %s" % json.dumps(data, sort_keys=True), level="debug")
             self._publish_settings()
         elif mid == OP_INFO:
             self.info = data
