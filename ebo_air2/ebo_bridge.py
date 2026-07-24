@@ -481,7 +481,11 @@ class Bridge:
             self.telemetry = data
             self._publish_telemetry()
         elif mid == OP_SETTINGS:
-            self.settings = data
+            # MERGE (not replace): the robot's settings report omits some write-only fields
+            # (imageStyle, callAutoRecording — confirmed absent live), so we keep the values we
+            # optimistically set on command; a replace would wipe them on every report.
+            if isinstance(data, dict):
+                self.settings.update(data)
             # debug: show exactly which fields the robot reports (e.g. is imageStyle /
             # callAutoRecording echoed back?) — helps diagnose read-back gaps.
             log("[settings] %s" % json.dumps(data, sort_keys=True), level="debug")
@@ -874,8 +878,11 @@ class Bridge:
                 self.send(OP_SPORTS_REC,
                           {"sportsRecord": payload.lower() in ("on", "true", "1")})
             elif topic.endswith("/call_rec/set"):
-                self.send(OP_CALL_REC,
-                          {"callAutoRecording": 1 if payload.lower() in ("on", "true", "1") else 0})
+                on = payload.lower() in ("on", "true", "1")
+                self.send(OP_CALL_REC, {"callAutoRecording": 1 if on else 0})
+                # robot never echoes this field → reflect intent optimistically
+                self.settings["callAutoRecording"] = 1 if on else 0
+                self._publish_telemetry()
             elif topic.endswith("/upload_cloud/set"):
                 self.send(OP_UPLOAD_CLOUD,
                           {"videoUploadCloud": payload.lower() in ("on", "true", "1")})
@@ -896,7 +903,11 @@ class Bridge:
             elif topic.endswith("/video_quality/set"):
                 self.send(OP_VIDEO_QUALITY, {"videoQuality": VIDEO_QUALITY_MAP.get(payload, 2)})
             elif topic.endswith("/image_style/set"):
-                self.send(OP_IMAGE_STYLE, {"imageStyle": IMAGE_STYLE_MAP.get(payload, 0)})
+                iv = IMAGE_STYLE_MAP.get(payload, 0)
+                self.send(OP_IMAGE_STYLE, {"imageStyle": iv})
+                # robot never echoes this field → reflect intent optimistically
+                self.settings["imageStyle"] = iv
+                self._publish_telemetry()
             elif topic.endswith("/shoot_mode/set"):
                 self.send(OP_SHOOT_MODE, {"shootMode": SHOOT_MODE_MAP.get(payload, 0)})
             elif topic.endswith("/move_mode/set"):

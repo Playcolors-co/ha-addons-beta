@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.16.3 — fix image-style / auto-record-calls read-back (the two ❌ in your test)
+- The live `[settings]` dump proved the robot **never reports `imageStyle` or
+  `callAutoRecording`** — that's why those two entities stayed null/false even though the
+  command worked. Now the bridge **reflects the value you set optimistically** (write-only
+  settings), so the entity updates immediately → both tests go ✅.
+- Settings reports are now **merged** into state instead of replacing it, so those optimistic
+  values survive the robot's periodic reports (which omit them).
+
 ## 0.16.2 — audio: auto-try both codecs + kill the false "stale image" alarm
 - **Auto-fallback 8→9:** if payload type 8 yields no PCM within 6 s, the bridge now flips to
   9 at runtime and tries again — **one restart tests both codecs** and logs a definitive
