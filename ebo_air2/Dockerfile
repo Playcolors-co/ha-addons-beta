@@ -30,9 +30,13 @@ RUN curl -fsSL --retry 5 --retry-delay 3 \
 
 ENV LD_LIBRARY_PATH=/usr/local/lib/python3.11/site-packages/agora/agora_sdk
 WORKDIR /app
-# VERSION.txt changes every release, so this COPY layer is never stale-cached: the running
-# image always contains the current code. run.sh logs it to prove which version is live.
-COPY VERSION.txt ebo_bridge.py ebo_cloud.py ebo_sign.py ebo_video.py ebo_log.py run.sh /app/
-RUN chmod +x /app/run.sh
+# The version changes every release, so this COPY layer is never stale-cached: the running
+# image always contains the current code. VERSION.txt is DERIVED from config.yaml at build so
+# it can never drift out of sync with the released version (a manual bump was easy to forget,
+# causing a false "stale image" warning). run.sh logs it to prove which version is live.
+COPY config.yaml ebo_bridge.py ebo_cloud.py ebo_sign.py ebo_video.py ebo_log.py run.sh /app/
+RUN sed -n 's/^version:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}.*/\1/p' /app/config.yaml > /app/VERSION.txt \
+    && echo "baked VERSION.txt=$(cat /app/VERSION.txt)" \
+    && chmod +x /app/run.sh
 
 CMD ["/app/run.sh"]

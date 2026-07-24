@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.16.2 — audio: auto-try both codecs + kill the false "stale image" alarm
+- **Auto-fallback 8→9:** if payload type 8 yields no PCM within 6 s, the bridge now flips to
+  9 at runtime and tries again — **one restart tests both codecs** and logs a definitive
+  verdict (`decoding OK with payload_type=N`, or `NO PCM with 8 or 9` → needs self-decode).
+- **Fix false "version MISMATCH / stale image" warning:** `VERSION.txt` is now **derived from
+  `config.yaml` at build**, so it can't drift behind the released version (that mismatch was
+  cosmetic — the new code *was* running, the banner just read a stale baked version string).
+- Verified live: 0.16.1's fix (codec params after `connect()`) runs correctly, but payload
+  type 8 alone does **not** decode this robot's mic — hence the auto-fallback.
+
 ## 0.16.1 — audio: correct codec timing + flip switch + watchdog
 - **Fix ordering:** the app sets the codec params *after joining the channel*, per-connection —
   we were setting them *before* `connect()`, which likely never took effect. Now set right
