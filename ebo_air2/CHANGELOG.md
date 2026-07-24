@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.16.1 — audio: correct codec timing + flip switch + watchdog
+- **Fix ordering:** the app sets the codec params *after joining the channel*, per-connection —
+  we were setting them *before* `connect()`, which likely never took effect. Now set right
+  after connect, matching the app exactly.
+- **New option `audio_codec` (8 or 9)** in the add-on UI: 8 = monitor (default), 9 = two-way
+  call. The app uses payload type 8 for the watch flow and 9 for calls — if 8 stays silent,
+  switch to 9 from the UI (no rebuild) and restart.
+- **Watchdog:** if no PCM arrives within 8 s of enabling audio, the log now says so explicitly
+  and tells you which value to try next — so we can tell "wrong codec" from "silent playback".
+
 ## 0.16.0 — audio: decode the robot's mic codec
 - The robot streams its microphone with a **custom telephony codec** (Agora audio payload
   type 8/9), not the default. The bridge now tells the Agora engine to decode it

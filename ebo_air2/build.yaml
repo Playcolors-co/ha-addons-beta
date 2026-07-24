@@ -4,4 +4,4 @@ build_from:
   amd64: docker.io/library/python:3.11-slim
 labels:
   org.opencontainers.image.title: "EBO Air 2"
-  org.opencontainers.image.source: "https://github.com/Playcolors-co/ha-addons-beta"
+  org.opencontainers.image.source: "https://github.com/Playcolors-co/ha-enabot"
