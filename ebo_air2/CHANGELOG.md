@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.16.11 — audio: drop pcm_data_only, mirror the working video path
+- Playout enabled still gave no PCM. The one thing the audio path did that the (working) video
+  path didn't was set `AudioSubscriptionOptions(pcm_data_only=1)` — a raw-track-PCM mode that
+  bypasses the playout frame observer. Removed it: audio now uses plain `auto_subscribe_audio`
+  + `enable_audio_recording_or_playout=1` + frame observer, exactly like video.
+- Observer now also catches `on_mixed_audio_frame` (a third possible delivery path) so whichever
+  callback the SDK actually uses, we forward it — and the `first PCM frame (<source>)` log tells
+  us which one fired.
+
 ## 0.16.10 — audio: enable the decode/playout pipeline + post-mix path
 - 8 kHz alone still gave no PCM despite `subscribe state 3`. Root cause: `RTCConnConfig` was
   missing **`enable_audio_recording_or_playout=1`** — without it the SDK subscribes but never

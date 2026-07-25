@@ -271,17 +271,11 @@ class Bridge:
             channel_profile=ChannelProfileType.CHANNEL_PROFILE_LIVE_BROADCASTING,
         )
         if self.audio_enabled:
-            from agora.rtc.agora_base import AudioSubscriptionOptions
-            ccfg_kw["audio_recv_media_packet"] = 0
-            # REQUIRED: without this the SDK subscribes but never runs the audio decode/playout
-            # pipeline, so the PCM frame observers never fire (subscribed=state3 but 0 PCM).
+            # Mirror the WORKING video path: plain auto-subscribe + frame observer, no special
+            # AudioSubscriptionOptions. The earlier pcm_data_only=1 put the subscription in a
+            # raw-track-PCM mode that bypasses the playout observer (subscribed but 0 PCM).
+            # REQUIRED: run the audio decode/playout pipeline so the frame observers fire.
             ccfg_kw["enable_audio_recording_or_playout"] = 1
-            # The robot streams its mic at 8 kHz mono G.711 (measured on the real app via Frida:
-            # onRemoteAudioStats sr=8000 ch=1). We were asking for 16 kHz — that mismatch stopped
-            # the PCM observer from ever firing. Match the source: 8 kHz mono.
-            ccfg_kw["audio_subs_options"] = AudioSubscriptionOptions(
-                packet_only=0, pcm_data_only=1, bytes_per_sample=2,
-                number_of_channels=1, sample_rate_hz=AUDIO_RATE)
         ccfg = RTCConnConfig(**ccfg_kw)
         pcfg = RtcConnectionPublishConfig(is_publish_audio=False, is_publish_video=False)
         self.rtc = svc.create_rtc_connection(ccfg, pcfg)
@@ -420,6 +414,9 @@ class Bridge:
 
                 def on_playback_audio_frame(o, lu_, ch, frame):
                     return o._pcm(frame, "playback", "mix")
+
+                def on_mixed_audio_frame(o, lu_, ch, frame):
+                    return o._pcm(frame, "mixed", "mix")
             self._audio_obs = AudioObs()   # keep a reference (else it's GC'd, no callbacks)
             self.rtc.register_audio_frame_observer(self._audio_obs, 0, None)
             log("[audio] PCM observer registered (listen)")
