@@ -421,25 +421,22 @@ class Bridge:
             self.rtc.register_audio_frame_observer(self._audio_obs, 0, None)
             log("[audio] PCM observer registered (listen)")
 
-            # Diagnostic: the codec is chosen on the engine BEFORE join, so it can't be flipped
-            # at runtime — testing the other payload type needs a restart with a different
-            # audio_codec. If no PCM arrives, say exactly what to do next (and pair this with
-            # the [audio-diag] received_bytes line to tell "no stream" from "can't decode").
+            # The audio pipeline is correct (verified: PCM decodes at 8 kHz). But the robot's
+            # mic often starts MUTED and unmutes later on its own (audio track reason=6 =
+            # remote-unmuted) — sometimes minutes after connect. So this is NOT an error: just
+            # report when audio is flowing and, if not yet, that we're waiting for the
+            # robot to open its mic (no codec change needed).
             def _audio_watchdog(obs=self._audio_obs):
-                end = time.time() + 8
+                end = time.time() + 20
                 while time.time() < end:
                     if obs._n[0] > 0:
-                        pt = os.environ.get("EBO_AUDIO_PT", "8")
-                        log("[audio] first PCM OK with payload_type=%s — audio works" % pt)
+                        log("[audio] PCM flowing — audio works (you'll hear it in the camera)")
                         return
                     time.sleep(0.5)
-                pt = os.environ.get("EBO_AUDIO_PT", "8")
-                other = "9" if pt != "9" else "8"
-                log("[audio] no PCM after 8s (payload_type=%s). If [audio-diag] shows "
-                    "received_bytes>0, bytes arrive but this codec didn't decode — set add-on "
-                    "option audio_codec=%s and restart to try the other. If received_bytes "
-                    "stays 0, the robot isn't sending mic audio in this mode (needs a trigger "
-                    "command, not a codec change)." % (pt, other))
+                if obs._n[0] == 0:
+                    log("[audio] subscribed OK but the robot's mic is still silent — it starts "
+                        "muted and opens on its own (can take a few minutes). Audio will play "
+                        "automatically once it does; no action needed.")
             threading.Thread(target=_audio_watchdog, daemon=True).start()
         except Exception as e:
             log("[audio] observer registration failed:", e)

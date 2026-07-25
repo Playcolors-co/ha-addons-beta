@@ -1,5 +1,17 @@
 # Changelog — Enabot integration
 
+## 0.16.12 — audio WORKS 🎉 (and honest watchdog)
+- Confirmed live on the robot: `first PCM frame (before-mix)` + `first remote audio DECODED —
+  codec OK!`, steady `stats: bitrate=73 bytes=… sr=8000 ch=1 loss=0`. The 0.16.9–0.16.11 chain
+  (subscribe explicitly + 8 kHz + `enable_audio_recording_or_playout=1` + drop `pcm_data_only`)
+  is the full, verified fix. Audio is forwarded to the RTSP stream.
+- **Note on timing:** the robot's mic starts *muted* and unmutes on its own (audio track
+  `reason=6` = remote-unmuted), sometimes a few minutes after connect, and can go quiet again
+  (`reason=7` = remote-offline). This is robot-side behaviour, not a bug.
+- Rewrote the misleading "no PCM after 8 s → change the codec" watchdog: it now waits longer and
+  says plainly that we're subscribed and waiting for the robot to open its mic — audio will play
+  automatically when it does.
+
 ## 0.16.11 — audio: drop pcm_data_only, mirror the working video path
 - Playout enabled still gave no PCM. The one thing the audio path did that the (working) video
   path didn't was set `AudioSubscriptionOptions(pcm_data_only=1)` — a raw-track-PCM mode that
