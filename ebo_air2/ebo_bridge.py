@@ -22,6 +22,7 @@ from ebo_log import log, raw     # MUST be first: silences the Agora SDK's stdou
 
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -149,6 +150,8 @@ class Bridge:
         self.video = None
         self.video_enabled = os.environ.get("EBO_VIDEO", "1") == "1"
         self.audio_enabled = os.environ.get("EBO_AUDIO", "0") == "1"   # listen (optional)
+        self.talk_enabled = os.environ.get("EBO_TALK", "0") == "1"     # speak TO the robot
+        self._talk_lock = threading.Lock()
         self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
         self.rtsp_path = os.environ.get("EBO_RTSP_PATH", "ebo")
         self.robot_uid = None            # the robot's RTC uid, learned on_user_joined
@@ -277,7 +280,17 @@ class Bridge:
             # REQUIRED: run the audio decode/playout pipeline so the frame observers fire.
             ccfg_kw["enable_audio_recording_or_playout"] = 1
         ccfg = RTCConnConfig(**ccfg_kw)
-        pcfg = RtcConnectionPublishConfig(is_publish_audio=False, is_publish_video=False)
+        if self.talk_enabled:
+            # TALK (you -> robot): publish a PCM audio track we can push audio into. The app
+            # uses audio scenario 3 (GAME_STREAMING) for the intercom; match it. The track is
+            # created now but only actually published (publish_audio) while we're playing audio.
+            from agora.rtc.agora_base import AudioPublishType, AudioScenarioType
+            pcfg = RtcConnectionPublishConfig(
+                is_publish_audio=True, is_publish_video=False,
+                audio_publish_type=AudioPublishType.AUDIO_PUBLISH_TYPE_PCM,
+                audio_scenario=AudioScenarioType.AUDIO_SCENARIO_GAME_STREAMING)
+        else:
+            pcfg = RtcConnectionPublishConfig(is_publish_audio=False, is_publish_video=False)
         self.rtc = svc.create_rtc_connection(ccfg, pcfg)
         self.rtc.register_observer(RtcObs())
         self._observers_registered = False
@@ -440,6 +453,81 @@ class Bridge:
             threading.Thread(target=_audio_watchdog, daemon=True).start()
         except Exception as e:
             log("[audio] observer registration failed:", e)
+
+    # ---------------- TALK (you -> robot speaker) ----------------
+    def _talk(self, source):
+        """Play an audio source through the robot's speaker. `source` is anything ffmpeg can
+        read: an http(s) URL (e.g. a Home Assistant TTS media URL) or a file path. Mirrors the
+        app's mic/'talk' button — we publish an audio track and push the decoded PCM to it."""
+        source = (source or "").strip()
+        if not source:
+            return
+        if not self.talk_enabled:
+            log("[talk] disabled — set add-on option talk:true and restart")
+            return
+        sender = getattr(self.rtc, "_audio_sender", None) if self.rtc else None
+        if not sender:
+            log("[talk] no audio publisher (not connected / talk disabled at connect)")
+            return
+        threading.Thread(target=self._talk_worker, args=(source, sender),
+                         daemon=True).start()
+
+    def _talk_worker(self, source, sender):
+        from agora.rtc.agora_base import PcmAudioFrame
+        # serialize: one utterance at a time (the robot has a single speaker)
+        with self._talk_lock:
+            spc = AUDIO_RATE // 50            # 20 ms frame
+            frame_bytes = spc * 2             # mono s16le
+            proc = None
+            published = False
+            try:
+                try:
+                    self.rtc.publish_audio()
+                    published = True
+                except Exception as e:
+                    log("[talk] publish_audio failed:", e)
+                log("[talk] playing:", source)
+                proc = subprocess.Popen(
+                    ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", source,
+                     "-f", "s16le", "-ac", "1", "-ar", str(AUDIO_RATE), "pipe:1"],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                n = 0
+                while True:
+                    chunk = proc.stdout.read(frame_bytes)
+                    if not chunk:
+                        break
+                    if len(chunk) < frame_bytes:        # pad the last partial frame
+                        chunk = chunk + b"\x00" * (frame_bytes - len(chunk))
+                    f = PcmAudioFrame()
+                    f.data = bytearray(chunk)
+                    f.samples_per_channel = spc
+                    f.bytes_per_sample = 2
+                    f.number_of_channels = 1
+                    f.sample_rate = AUDIO_RATE
+                    f.timestamp = 0
+                    f.present_time_ms = 0
+                    try:
+                        sender.send_audio_pcm_data(f)
+                    except Exception as e:
+                        log("[talk] send error:", e)
+                        break
+                    n += 1
+                    time.sleep(0.02)               # real-time pacing (20 ms/frame)
+                log("[talk] done — %d frames (~%.1fs)" % (n, n * 0.02))
+            except Exception as e:
+                log("[talk] error:", e)
+            finally:
+                if proc:
+                    try:
+                        proc.stdout.close()
+                        proc.terminate()
+                    except Exception:
+                        pass
+                if published:
+                    try:
+                        self.rtc.unpublish_audio()
+                    except Exception:
+                        pass
 
     def _camera_feed(self, on):
         """Turn our RTSP feed on/off. The robot streams whenever we're present in RTC; this
@@ -773,6 +861,12 @@ class Bridge:
         self._disc("text", "say", {
             "name": "EBO say", "command_topic": "%s/say" % NODE,
             "state_topic": "%s/say/state" % NODE, "icon": "mdi:bullhorn"})
+        # talk (you -> robot speaker): only exposed when talk is enabled. Send an audio URL/path
+        # (e.g. a Home Assistant TTS media URL) and it plays through the robot's speaker.
+        if self.talk_enabled:
+            self._disc("text", "talk", {
+                "name": "EBO talk (audio URL)", "command_topic": "%s/talk" % NODE,
+                "icon": "mdi:microphone-message"})
         # playback volume
         self._disc("number", "volume", {
             "name": "EBO volume", "command_topic": "%s/volume/set" % NODE,
@@ -928,6 +1022,7 @@ class Bridge:
         c.subscribe("%s/joystick" % NODE)      # {"x":-1..1,"y":-1..1} from a joystick card
         c.subscribe("%s/sleep/set" % NODE)
         c.subscribe("%s/say" % NODE)
+        c.subscribe("%s/talk" % NODE)          # play audio (URL/path) through the robot speaker
         c.subscribe("%s/volume/set" % NODE)
         c.subscribe("%s/talkback_volume/set" % NODE)
         c.subscribe("%s/sports_record/set" % NODE)
@@ -967,6 +1062,9 @@ class Bridge:
                 if payload:
                     self.send(OP_SAY, {"userId": self.account, "text": payload})
                     self.mqtt.publish("%s/say/state" % NODE, payload)
+            elif topic.endswith("/talk"):
+                # play arbitrary audio (URL/path) through the robot's speaker — YOUR voice/audio
+                self._talk(payload)
             elif topic.endswith("/volume/set"):
                 self.send(OP_VOLUME, {"playbackVolume": int(float(payload)),
                                       "isPlaybackMuted": False})

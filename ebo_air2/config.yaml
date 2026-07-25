@@ -1,5 +1,5 @@
 name: EBO Air 2 (beta)
-version: "0.16.12"
+version: "0.17.0"
 slug: ebo_air2
 description: Control and telemetry for the Enabot EBO Air 2 in Home Assistant (via Enabot cloud)
 url: https://github.com/Playcolors-co/ha-addons-beta
@@ -38,6 +38,7 @@ options:
   robot_id: 0
   video: false
   audio: false
+  talk: false
   audio_codec: 8
   video_encoded: false
   video_max_height: 720
@@ -52,6 +53,7 @@ schema:
   robot_id: int?
   video: bool?
   audio: bool?
+  talk: bool?
   audio_codec: list(8|9)?
   video_encoded: bool?
   video_max_height: int?

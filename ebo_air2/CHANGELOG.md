@@ -1,5 +1,20 @@
 # Changelog — Enabot integration
 
+## 0.17.0 — talk: speak TO the robot (two-way audio)
+- New **`talk: true`** option. When on, the bridge publishes an audio track to the robot (the
+  server-SDK equivalent of the app's mic/"talk" button — `publishMicrophoneTrack`, audio
+  scenario 3), so you can play audio through the robot's speaker.
+- New command topic **`ebo_air2/talk`** (and a text entity **"EBO talk (audio URL)"** when
+  `talk` is on): the payload is anything ffmpeg can read — an **http(s) URL** (e.g. a Home
+  Assistant **TTS media URL**) or a file path. It's decoded to 8 kHz mono and streamed to the
+  robot in real time; the track is published only while playing and unpublished after.
+  - Example (HA automation): generate TTS to a media URL, then `mqtt.publish` it to
+    `ebo_air2/talk`. Or send any sound-effect URL.
+  - Note: this makes the robot **emit sound** — it's user-initiated, but be mindful it's a
+    device in your home. One utterance plays at a time.
+- This is distinct from `ebo_air2/say` (which makes the robot speak text in *its own* TTS voice
+  via the cloud) — `talk` plays *your* audio through its speaker.
+
 ## 0.16.12 — audio WORKS 🎉 (and honest watchdog)
 - Confirmed live on the robot: `first PCM frame (before-mix)` + `first remote audio DECODED —
   codec OK!`, steady `stats: bitrate=73 bytes=… sr=8000 ch=1 loss=0`. The 0.16.9–0.16.11 chain
