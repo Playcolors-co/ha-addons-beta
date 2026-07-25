@@ -1,5 +1,17 @@
 # Changelog — Enabot integration
 
+## 0.16.4 — audio: decisive diagnostic (does the robot even send audio bytes?)
+- Confirmed via the actual SDK source: `agora-python-server-sdk` 2.4.9 (the latest) has **no
+  working encoded-audio / media-packet receive path** (`register_audio_encoded_frame_observer`
+  is a `#todo` stub), so we can't grab undecoded audio to decode ourselves. The only audio path
+  is the PCM observer, which needs the SDK to decode — and it won't decode the robot's codec.
+- So the whole question is: **does the robot actually publish mic audio in monitor mode?**
+  Added a local-user observer that logs `[audio-diag] stats: bitrate=… bytes=…` plus
+  `first remote audio FRAME/DECODED`. On the next run the log tells us definitively:
+  - `bytes` grows > 0 but never `DECODED` → bytes arrive, SDK can't decode the custom codec.
+  - `bytes` stays 0 → the robot isn't sending mic audio here; it needs a trigger command.
+- No behaviour change otherwise — pure diagnostics.
+
 ## 0.16.3 — fix image-style / auto-record-calls read-back (the two ❌ in your test)
 - The live `[settings]` dump proved the robot **never reports `imageStyle` or
   `callAutoRecording`** — that's why those two entities stayed null/false even though the

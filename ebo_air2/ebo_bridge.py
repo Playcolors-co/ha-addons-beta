@@ -287,8 +287,49 @@ class Bridge:
             except Exception as e:
                 log("[video] pipeline setup failed:", e)
 
+    def _register_audio_diag(self):
+        """Register a local-user observer purely to diagnose the audio path: does the robot
+        actually SEND audio bytes in monitor mode (received_bytes>0 in the stats) or not? This
+        distinguishes 'robot isn't publishing mic audio here' from 'bytes arrive but the SDK
+        can't decode the custom codec' — which decides whether audio-listen is even feasible."""
+        try:
+            from agora.rtc.local_user_observer import IRTCLocalUserObserver
+        except Exception as e:
+            log("[audio-diag] import failed:", e)
+            return
+
+        class LUObs(IRTCLocalUserObserver):
+            _stat_n = [0]
+
+            def on_user_audio_track_subscribed(o, lu, user_id, track):
+                log("[audio-diag] subscribed to robot audio track uid=%s "
+                    "(robot IS publishing audio)" % user_id)
+
+            def on_first_remote_audio_frame(o, lu, user_id, elapsed):
+                log("[audio-diag] first remote audio FRAME uid=%s — bytes ARE arriving" % user_id)
+
+            def on_first_remote_audio_decoded(o, lu, user_id, elapsed):
+                log("[audio-diag] first remote audio DECODED uid=%s — codec OK!" % user_id)
+
+            def on_remote_audio_track_statistics(o, lu, track, stats):
+                o._stat_n[0] += 1
+                if o._stat_n[0] <= 3 or o._stat_n[0] % 15 == 0:
+                    log("[audio-diag] stats: bitrate=%s bytes=%s sr=%s ch=%s loss=%s" % (
+                        getattr(stats, "received_bitrate", "?"),
+                        getattr(stats, "received_bytes", "?"),
+                        getattr(stats, "received_sample_rate", "?"),
+                        getattr(stats, "num_channels", "?"),
+                        getattr(stats, "audio_loss_rate", "?")))
+        try:
+            self._lu_obs = LUObs()
+            r = self.rtc.register_local_user_observer(self._lu_obs)
+            log("[audio-diag] local-user observer registered (rc=%s)" % r)
+        except Exception as e:
+            log("[audio-diag] registration failed:", e)
+
     def _register_audio_observer(self):
         try:
+            self._register_audio_diag()
             from agora.rtc.audio_frame_observer import IAudioFrameObserver
             pipeline = self.video
             lu = self.rtc.get_local_user()
