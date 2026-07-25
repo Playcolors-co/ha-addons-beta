@@ -185,6 +185,18 @@ class Bridge:
                         self.rtc.send_intra_request(str(uid))
                     except Exception:
                         pass
+                # AUDIO: verified on the real app (Frida) — the "listen" icon just calls
+                # muteRemoteAudioStream(robotUid, false), i.e. it SUBSCRIBES to the robot's audio
+                # track. The robot publishes audio all along; auto_subscribe_audio didn't engage
+                # for us, so subscribe explicitly here — the server-SDK equivalent of that button.
+                if self.audio_enabled and self.rtc:
+                    try:
+                        lu = self.rtc.get_local_user()
+                        r = lu.subscribe_audio(str(uid))
+                        log("[audio] subscribe_audio(%s) rc=%s (mirrors the app's listen icon)"
+                            % (uid, r))
+                    except Exception as e:
+                        log("[audio] subscribe_audio failed:", e)
 
         bridge = self
 

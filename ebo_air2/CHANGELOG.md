@@ -1,5 +1,19 @@
 # Changelog — Enabot integration
 
+## 0.16.7 — audio: subscribe to the robot's track explicitly (VERIFIED against the app)
+- Instrumented the real app on the emulator with Frida and captured exactly what the audio
+  buttons do:
+  - **"Listen" (speaker)** → `muteRemoteAudioStream(robotUid, false)` — it just **subscribes to
+    the robot's audio track**. No RTM command; it does NOT publish the phone's mic. So the robot
+    publishes audio all along — the app simply doesn't subscribe until you tap listen.
+  - **"Talk" (mic)** → `enableLocalAudio(true)` + `updateChannelMediaOptions(publishMicrophoneTrack
+    =true)` — publishes the phone's mic (the other, outbound direction; not needed to listen).
+- Our `auto_subscribe_audio=1` wasn't engaging (no track ever appeared). Fix: on robot-join we
+  now call `local_user.subscribe_audio(robotUid)` explicitly — the exact server-SDK equivalent of
+  the app's listen button. Combined with the codec params from 0.16.5 (payload 8 = G.711 A-law),
+  the PCM observer should finally receive audio.
+- Kept `[audio-diag]` so we can confirm the track now subscribes and `received_bytes` climbs.
+
 ## 0.16.6 — audio: find the mic-enable trigger by sniffing the app's RTM
 - The 0.16.4 diagnostic proved it live: the robot publishes **video** on join but **no audio
   track at all** (zero `[audio-diag]` subscribe/stats events, both codecs). So audio isn't a
