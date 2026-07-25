@@ -504,6 +504,16 @@ class Bridge:
             return
         mid = obj.get("id")
         data = obj.get("data", {})
+        # RTM sniffer (debug): the app and the bridge publish commands to the SAME robot RTM
+        # channel we're subscribed to — so with debug on, whatever the app sends (e.g. tapping
+        # the "audio/listen" icon) is captured here with its exact opcode. Skip the frequent
+        # telemetry to keep the noise down. This is how we find the mic-enable trigger command.
+        if mid != OP_TELEMETRY:
+            try:
+                log("[rtm-raw] id=%s %s" % (mid, json.dumps(data, separators=(",", ":"))),
+                    level="debug")
+            except Exception:
+                pass
         if obj.get("rsid"):
             self.sid = obj["rsid"]
         if mid == OP_TELEMETRY:

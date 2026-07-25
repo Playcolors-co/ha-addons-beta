@@ -1,5 +1,16 @@
 # Changelog — Enabot integration
 
+## 0.16.6 — audio: find the mic-enable trigger by sniffing the app's RTM
+- The 0.16.4 diagnostic proved it live: the robot publishes **video** on join but **no audio
+  track at all** (zero `[audio-diag]` subscribe/stats events, both codecs). So audio isn't a
+  codec problem — the robot simply isn't sending its mic during passive monitoring. It needs a
+  trigger, which the app sends when you tap its audio/listen icon.
+- The app and the bridge publish to the **same robot RTM channel** the bridge is subscribed to,
+  so added an `[rtm-raw]` debug log of every non-telemetry RTM message. With `log_level: debug`,
+  open the official app on live view and tap the audio icon — the exact opcode it sends shows up
+  in our log, and we replicate it to enable the mic. (Confirmed the codec is **G.711 A-law**,
+  `.g711a`, in the app — payload type 8, as expected.)
+
 ## 0.16.5 — audio: set the codec on the ENGINE, before join (the real fix candidate)
 - **Root-cause correction:** the codec params (`che.audio.codec_unfallback` +
   `custom_payload_type`) were applied on the *per-connection* handle *after* `connect()`.
