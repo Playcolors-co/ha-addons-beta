@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.16.10 — audio: enable the decode/playout pipeline + post-mix path
+- 8 kHz alone still gave no PCM despite `subscribe state 3`. Root cause: `RTCConnConfig` was
+  missing **`enable_audio_recording_or_playout=1`** — without it the SDK subscribes but never
+  runs the audio decode/playout pipeline, so the PCM observers never fire. Now enabled.
+- Also register the **post-mix `on_playback_audio_frame`** observer (the mixed remote output)
+  in addition to before-mixing, and set both frame formats to 8 kHz mono — whichever the SDK
+  delivers, we forward it to ffmpeg.
+- If this still yields no `[audio] first PCM frame`, the `[audio-diag]` subscribe-state (3) plus
+  the absence of PCM points at the SDK build, and we'll dump raw track stats next.
+
 ## 0.16.9 — audio: the robot streams 8 kHz, we were asking for 16 kHz (likely THE fix)
 - Instrumented the **real app's audio-receive** path with Frida and pressed "listen" ONLY (no
   talk): `onFirstRemoteAudioDecoded — AUDIO IS FLOWING`, `onRemoteAudioStats: bitrate=90,

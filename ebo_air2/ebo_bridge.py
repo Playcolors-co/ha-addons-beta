@@ -273,6 +273,9 @@ class Bridge:
         if self.audio_enabled:
             from agora.rtc.agora_base import AudioSubscriptionOptions
             ccfg_kw["audio_recv_media_packet"] = 0
+            # REQUIRED: without this the SDK subscribes but never runs the audio decode/playout
+            # pipeline, so the PCM frame observers never fire (subscribed=state3 but 0 PCM).
+            ccfg_kw["enable_audio_recording_or_playout"] = 1
             # The robot streams its mic at 8 kHz mono G.711 (measured on the real app via Frida:
             # onRemoteAudioStats sr=8000 ch=1). We were asking for 16 kHz — that mismatch stopped
             # the PCM observer from ever firing. Match the source: 8 kHz mono.
@@ -386,25 +389,37 @@ class Bridge:
             from agora.rtc.audio_frame_observer import IAudioFrameObserver
             pipeline = self.video
             lu = self.rtc.get_local_user()
-            # REQUIRED: without this the before-mixing callback never fires (1 ch, 16 kHz)
+            # Set BOTH frame formats to the robot's native 8 kHz mono. before-mixing = per-user
+            # PCM; playback (post-mix) = the mixed remote output. We take whichever fires.
             try:
                 lu.set_playback_audio_frame_before_mixing_parameters(1, AUDIO_RATE)
             except Exception as e:
-                log("[audio] set params failed:", e)
+                log("[audio] set before-mixing params failed:", e)
+            try:
+                # (channels, sample_rate, mode=0 read-only, samples_per_call: 10 ms frame)
+                lu.set_playback_audio_frame_parameters(1, AUDIO_RATE, 0, AUDIO_RATE // 100)
+            except Exception as e:
+                log("[audio] set playback params failed:", e)
 
             class AudioObs(IAudioFrameObserver):
                 _n = [0]
 
-                def on_playback_audio_frame_before_mixing(o, length, ch, uid, frame,
-                                                          vad_state=0, vad_bytes=None):
+                def _pcm(o, frame, src, uid):
                     try:
                         o._n[0] += 1
                         if o._n[0] == 1:
-                            log("[audio] first PCM frame from %s" % uid)
+                            log("[audio] first PCM frame (%s) from %s" % (src, uid))
                         pipeline.write_audio(frame.buffer)
                     except Exception:
                         pass
                     return 0
+
+                def on_playback_audio_frame_before_mixing(o, lu_, ch, uid, frame,
+                                                          vad_state=-1, vad_bytes=None):
+                    return o._pcm(frame, "before-mix", uid)
+
+                def on_playback_audio_frame(o, lu_, ch, frame):
+                    return o._pcm(frame, "playback", "mix")
             self._audio_obs = AudioObs()   # keep a reference (else it's GC'd, no callbacks)
             self.rtc.register_audio_frame_observer(self._audio_obs, 0, None)
             log("[audio] PCM observer registered (listen)")
