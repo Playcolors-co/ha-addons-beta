@@ -1,5 +1,17 @@
 # Changelog — Enabot integration
 
+## 0.16.8 — audio: subscribe harder + subscribe-state diagnostics
+- 0.16.7's `subscribe_audio` returned rc=0 but the track still didn't appear. Now: on join we
+  call **both** `subscribe_audio(uid)` and `subscribe_all_audio()`, **and retry once after 2.5 s**
+  (the robot may publish its audio track a moment after joining).
+- New diagnostics: `on_audio_subscribe_state_changed` (state 3 = subscribed, 1 = **robot has no
+  audio publisher**) and `on_user_audio_track_state_changed` — these say definitively whether the
+  robot is publishing audio at all, or we're failing to subscribe.
+- Also set the codec on the **connection** handle after connect (in addition to the global
+  pre-join set), matching the app which sets `custom_payload_type` post-join.
+- **Set `audio_codec: 8`** (not 9): the app uses payload type **8** (G.711 A-law) for this
+  monitor stream — confirmed by Frida. 9 is the wrong codec for listening.
+
 ## 0.16.7 — audio: subscribe to the robot's track explicitly (VERIFIED against the app)
 - Instrumented the real app on the emulator with Frida and captured exactly what the audio
   buttons do:

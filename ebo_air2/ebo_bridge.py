@@ -190,13 +190,24 @@ class Bridge:
                 # track. The robot publishes audio all along; auto_subscribe_audio didn't engage
                 # for us, so subscribe explicitly here — the server-SDK equivalent of that button.
                 if self.audio_enabled and self.rtc:
-                    try:
-                        lu = self.rtc.get_local_user()
-                        r = lu.subscribe_audio(str(uid))
-                        log("[audio] subscribe_audio(%s) rc=%s (mirrors the app's listen icon)"
-                            % (uid, r))
-                    except Exception as e:
-                        log("[audio] subscribe_audio failed:", e)
+                    def _sub(tagnote):
+                        try:
+                            lu = self.rtc.get_local_user()
+                            r1 = lu.subscribe_audio(str(uid))
+                            r2 = lu.subscribe_all_audio()
+                            log("[audio] %s subscribe_audio(%s) rc=%s / subscribe_all_audio rc=%s"
+                                % (tagnote, uid, r1, r2))
+                        except Exception as e:
+                            log("[audio] subscribe failed:", e)
+                    _sub("join")
+                    # the robot's audio track may be published a moment after it joins — retry
+                    # once after a short delay so we don't miss it (mirrors the app, where you
+                    # tap "listen" well after the robot is already streaming).
+                    def _retry():
+                        time.sleep(2.5)
+                        if self.audio_enabled and self.rtc:
+                            _sub("retry")
+                    threading.Thread(target=_retry, daemon=True).start()
 
         bridge = self
 
@@ -273,6 +284,18 @@ class Bridge:
                 break
             time.sleep(0.5)
         log("[RTC] state:", self.rtc_state)
+        # Also set the codec on the CONNECTION handle after connect — the app sets
+        # custom_payload_type on its engine *after* joinChannelEx, so cover that too (harmless
+        # if the global pre-join set already took).
+        if self.audio_enabled:
+            try:
+                pt = int(os.environ.get("EBO_AUDIO_PT", "8"))
+                cp = self.rtc.get_agora_parameter()
+                cp.set_parameters('{"che.audio.codec_unfallback":[0,8,9]}')
+                cp.set_parameters('{"che.audio.custom_payload_type":%d}' % pt)
+                log("[audio] codec params also set on connection after connect (pt=%d)" % pt)
+            except Exception as e:
+                log("[audio] connection set_parameters failed:", e)
 
         if self.video_enabled:
             self._setup_video_pipeline()
@@ -319,6 +342,15 @@ class Bridge:
             def on_user_audio_track_subscribed(o, lu, user_id, track):
                 log("[audio-diag] subscribed to robot audio track uid=%s "
                     "(robot IS publishing audio)" % user_id)
+
+            def on_audio_subscribe_state_changed(o, lu, channel, user_id, old, new, elapsed):
+                # new: 0=idle 1=no-publisher 2=subscribing 3=subscribed. Tells us if the robot
+                # is even publishing audio (state 1 = no publisher) vs we failed to subscribe.
+                log("[audio-diag] audio subscribe state %s->%s uid=%s "
+                    "(3=subscribed, 1=no-publisher)" % (old, new, user_id))
+
+            def on_user_audio_track_state_changed(o, lu, user_id, track, state, reason, elapsed):
+                log("[audio-diag] audio track state=%s reason=%s uid=%s" % (state, reason, user_id))
 
             def on_first_remote_audio_frame(o, lu, user_id, elapsed):
                 log("[audio-diag] first remote audio FRAME uid=%s — bytes ARE arriving" % user_id)
