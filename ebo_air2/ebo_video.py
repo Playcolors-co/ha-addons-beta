@@ -42,7 +42,8 @@ class VideoPipeline(IVideoFrameObserver):
         self.preset = os.environ.get("EBO_VIDEO_PRESET", "ultrafast")
         # optional audio (listen): 16 kHz mono PCM from the SDK, muxed as AAC (default off)
         self.audio = os.environ.get("EBO_AUDIO", "0") == "1"
-        self.audio_rate = 16000
+        # robot mic is 8 kHz mono (measured on the real app); must match the SDK PCM rate
+        self.audio_rate = int(os.environ.get("EBO_AUDIO_RATE", "8000"))
         self._a_w = None              # write end of the audio pipe to ffmpeg
         self._audio_lock = threading.Lock()
         self._last_audio = 0.0        # last time real PCM arrived

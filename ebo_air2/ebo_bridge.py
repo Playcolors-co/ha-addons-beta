@@ -57,6 +57,9 @@ except Exception:
     pass
 
 # ---- protocol opcodes (see docs/PROTOCOLLO.md) ----
+# The robot's mic streams at 8 kHz mono (measured on the real app). Override if it ever differs.
+AUDIO_RATE = int(os.environ.get("EBO_AUDIO_RATE", "8000"))
+
 OP_HANDSHAKE = 101003
 OP_HEARTBEAT = 101005
 OP_GET_SETTINGS = 101027
@@ -270,9 +273,12 @@ class Bridge:
         if self.audio_enabled:
             from agora.rtc.agora_base import AudioSubscriptionOptions
             ccfg_kw["audio_recv_media_packet"] = 0
+            # The robot streams its mic at 8 kHz mono G.711 (measured on the real app via Frida:
+            # onRemoteAudioStats sr=8000 ch=1). We were asking for 16 kHz — that mismatch stopped
+            # the PCM observer from ever firing. Match the source: 8 kHz mono.
             ccfg_kw["audio_subs_options"] = AudioSubscriptionOptions(
                 packet_only=0, pcm_data_only=1, bytes_per_sample=2,
-                number_of_channels=1, sample_rate_hz=16000)
+                number_of_channels=1, sample_rate_hz=AUDIO_RATE)
         ccfg = RTCConnConfig(**ccfg_kw)
         pcfg = RtcConnectionPublishConfig(is_publish_audio=False, is_publish_video=False)
         self.rtc = svc.create_rtc_connection(ccfg, pcfg)
@@ -382,7 +388,7 @@ class Bridge:
             lu = self.rtc.get_local_user()
             # REQUIRED: without this the before-mixing callback never fires (1 ch, 16 kHz)
             try:
-                lu.set_playback_audio_frame_before_mixing_parameters(1, 16000)
+                lu.set_playback_audio_frame_before_mixing_parameters(1, AUDIO_RATE)
             except Exception as e:
                 log("[audio] set params failed:", e)
 

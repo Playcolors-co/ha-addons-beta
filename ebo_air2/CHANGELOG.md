@@ -1,5 +1,16 @@
 # Changelog — Enabot integration
 
+## 0.16.9 — audio: the robot streams 8 kHz, we were asking for 16 kHz (likely THE fix)
+- Instrumented the **real app's audio-receive** path with Frida and pressed "listen" ONLY (no
+  talk): `onFirstRemoteAudioDecoded — AUDIO IS FLOWING`, `onRemoteAudioStats: bitrate=90,
+  **sr=8000, ch=1**`. So the robot streams its mic on a bare subscribe (no two-way call needed),
+  8 kHz mono G.711 — and it decodes fine.
+- Our bridge asked the SDK for **16 kHz** PCM (`AudioSubscriptionOptions` + before-mixing params
+  + ffmpeg), a mismatch with the 8 kHz source that stopped the PCM observer from ever firing.
+  Now everything uses **8 kHz mono** (`AUDIO_RATE`, env `EBO_AUDIO_RATE`). This is the concrete,
+  evidence-based cause of "subscribed (state 3) but no PCM".
+- Net of 0.16.7–0.16.9: subscribe explicitly (like the app's listen icon) + correct 8 kHz rate.
+
 ## 0.16.8 — audio: subscribe harder + subscribe-state diagnostics
 - 0.16.7's `subscribe_audio` returned rc=0 but the track still didn't appear. Now: on join we
   call **both** `subscribe_audio(uid)` and `subscribe_all_audio()`, **and retry once after 2.5 s**
