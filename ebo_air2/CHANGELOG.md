@@ -1,5 +1,21 @@
 # Changelog — Enabot integration
 
+## 0.16.5 — audio: set the codec on the ENGINE, before join (the real fix candidate)
+- **Root-cause correction:** the codec params (`che.audio.codec_unfallback` +
+  `custom_payload_type`) were applied on the *per-connection* handle *after* `connect()`.
+  Agora's guidance for this exact case (payload 8 = G.711) is that they must be set on the
+  **global engine parameter handle before joining** — after-join never takes effect, which is
+  why the PCM observer got 0 frames. Now set on `service.get_agora_parameter()` right after
+  `svc.initialize()`, before the RTC connection is even created. **This is the single change
+  most likely to finally make the mic produce PCM.**
+- Removed the runtime 8↔9 flip — impossible now that the codec is fixed before join. To test
+  the other codec, set `audio_codec: 9` and restart (the watchdog says so, and pairs with the
+  `[audio-diag] received_bytes` line to tell "no stream" from "can't decode").
+- Kept the `[audio-diag]` observer from 0.16.4. Tests (68) + ruff clean.
+- **Honest caveat:** not verified against the robot — a well-grounded hypothesis (SDK source +
+  Agora codec-8 guidance). If it still logs no PCM *and* `received_bytes>0`, this SDK genuinely
+  can't decode the stream and the path forward is a different SDK/transport, not more tweaks.
+
 ## 0.16.4 — audio: decisive diagnostic (does the robot even send audio bytes?)
 - Confirmed via the actual SDK source: `agora-python-server-sdk` 2.4.9 (the latest) has **no
   working encoded-audio / media-packet receive path** (`register_audio_encoded_frame_observer`

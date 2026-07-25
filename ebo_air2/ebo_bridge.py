@@ -156,6 +156,7 @@ class Bridge:
         self.video_on = self.video_enabled
         self.host_ip = os.environ.get("EBO_HOST_IP", "")
         self._observers_registered = False
+        self.svc = None                        # Agora service (global param handle lives here)
         self._video_lock = threading.Lock()   # serialize setup/subscribe (2 callers race)
 
     # ---------------- Agora ----------------
@@ -215,6 +216,25 @@ class Bridge:
             except Exception:
                 pass
         svc.initialize(scfg)
+        self.svc = svc
+        # AUDIO codec: the robot streams its mic with a custom telephony codec (Agora payload
+        # type 8 = monitor / 9 = call). Agora's own guidance for this case (payload 8 = G.711)
+        # is that che.audio.codec_unfallback + custom_payload_type must be set on the GLOBAL
+        # engine parameter handle BEFORE joining — setting them on the per-connection handle
+        # after connect() never takes effect (that's why the PCM observer got 0 frames). The
+        # server SDK's global handle is service.get_agora_parameter(). Set them here, pre-join.
+        if self.audio_enabled:
+            try:
+                pt = int(os.environ.get("EBO_AUDIO_PT", "8"))
+                gp = svc.get_agora_parameter()
+                for kv in ('{"che.audio.codec_unfallback":[0,8,9]}',
+                           '{"che.audio.custom_payload_type":%d}' % pt,
+                           '{"che.audio.aec.enable":false}'):
+                    gp.set_parameters(kv)
+                log("[audio] codec params set on ENGINE before join "
+                    "(codec_unfallback [0,8,9], payload_type %d)" % pt)
+            except Exception as e:
+                log("[audio] global set_parameters failed:", e)
         # Decoded video path: auto-subscribe so the SDK DECODES the robot's H.265 to raw YUV
         # (this build decodes H.265 but its *encoded* observer segfaults). We re-encode the YUV
         # to H.264 for RTSP. auto_subscribe_video=1 is the stable config.
@@ -241,23 +261,6 @@ class Bridge:
                 break
             time.sleep(0.5)
         log("[RTC] state:", self.rtc_state)
-        # AUDIO: the robot publishes its mic with a custom telephony codec (Agora payload
-        # type 8 for monitor / 9 for two-way call). The app sets che.audio.codec_unfallback +
-        # custom_payload_type so the engine decodes it — and it sets them *after* joining the
-        # channel, per-connection. Without this the PCM observer gets 0 frames. Match that:
-        # set them here, after connect(). PT is env-overridable (EBO_AUDIO_PT, default 8) so we
-        # can flip 8<->9 without a rebuild.
-        if self.audio_enabled:
-            try:
-                pt = int(os.environ.get("EBO_AUDIO_PT", "8"))
-                p = self.rtc.get_agora_parameter()
-                for kv in ('{"che.audio.codec_unfallback":[0,8,9]}',
-                           '{"che.audio.custom_payload_type":%d}' % pt,
-                           '{"che.audio.aec.enable":false}'):
-                    p.set_parameters(kv)
-                log("[audio] engine params set (codec_unfallback [0,8,9], payload_type %d)" % pt)
-            except Exception as e:
-                log("[audio] set_parameters failed:", e)
 
         if self.video_enabled:
             self._setup_video_pipeline()
@@ -356,40 +359,25 @@ class Bridge:
             self.rtc.register_audio_frame_observer(self._audio_obs, 0, None)
             log("[audio] PCM observer registered (listen)")
 
-            # Diagnostic + auto-recovery: if no PCM arrives, the robot's custom codec isn't
-            # being decoded. The app uses payload type 8 (monitor) OR 9 (call), so try the
-            # configured PT first, then flip to the other at runtime — one restart tests both.
-            # If NEITHER yields PCM, the server SDK can't decode this codec via che.audio.* and
-            # we must decode the encoded frames ourselves (next step).
+            # Diagnostic: the codec is chosen on the engine BEFORE join, so it can't be flipped
+            # at runtime — testing the other payload type needs a restart with a different
+            # audio_codec. If no PCM arrives, say exactly what to do next (and pair this with
+            # the [audio-diag] received_bytes line to tell "no stream" from "can't decode").
             def _audio_watchdog(obs=self._audio_obs):
-                def _wait_pcm(seconds):
-                    end = time.time() + seconds
-                    while time.time() < end:
-                        if obs._n[0] > 0:
-                            return True
-                        time.sleep(0.5)
-                    return obs._n[0] > 0
-
-                pt = int(os.environ.get("EBO_AUDIO_PT", "8"))
-                if _wait_pcm(6):
-                    log("[audio] decoding OK with payload_type=%d" % pt)
-                    return
-                alt = 9 if pt != 9 else 8
-                log("[audio] no PCM after 6s (payload_type=%d) — auto-trying payload_type=%d"
-                    % (pt, alt))
-                try:
-                    p = self.rtc.get_agora_parameter()
-                    p.set_parameters('{"che.audio.codec_unfallback":[0,8,9]}')
-                    p.set_parameters('{"che.audio.custom_payload_type":%d}' % alt)
-                except Exception as e:
-                    log("[audio] runtime set_parameters failed:", e)
-                if _wait_pcm(6):
-                    log("[audio] decoding OK with payload_type=%d — pin it: set add-on option "
-                        "audio_codec=%d" % (alt, alt))
-                    return
-                log("[audio] NO PCM with payload_type 8 or 9. The Agora server SDK isn't "
-                    "decoding the robot's mic codec via che.audio.* — need to decode the "
-                    "encoded audio ourselves. Tell Claude: 'audio: né 8 né 9'.")
+                end = time.time() + 8
+                while time.time() < end:
+                    if obs._n[0] > 0:
+                        pt = os.environ.get("EBO_AUDIO_PT", "8")
+                        log("[audio] first PCM OK with payload_type=%s — audio works" % pt)
+                        return
+                    time.sleep(0.5)
+                pt = os.environ.get("EBO_AUDIO_PT", "8")
+                other = "9" if pt != "9" else "8"
+                log("[audio] no PCM after 8s (payload_type=%s). If [audio-diag] shows "
+                    "received_bytes>0, bytes arrive but this codec didn't decode — set add-on "
+                    "option audio_codec=%s and restart to try the other. If received_bytes "
+                    "stays 0, the robot isn't sending mic audio in this mode (needs a trigger "
+                    "command, not a codec change)." % (pt, other))
             threading.Thread(target=_audio_watchdog, daemon=True).start()
         except Exception as e:
             log("[audio] observer registration failed:", e)
