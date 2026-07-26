@@ -1,5 +1,9 @@
 # Changelog — Enabot integration
 
+## 0.18.1 — use the robot's real name for a single robot too
+- The device/camera now takes the robot's actual account name even with one robot (was the
+  generic "EBO Air 2").
+
 ## 0.18.0 — auto-discovery for the companion HA integration (device + live camera per robot)
 - The add-on now announces each robot on retained MQTT `ebo_air2/discovery/<node>` with its
   name, serial, **MAC**, model and RTSP URL. The companion **Enabot EBO integration** (HACS,

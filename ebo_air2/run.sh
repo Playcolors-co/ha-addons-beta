@@ -117,9 +117,10 @@ run_robot() {
     (
       export EBO_VIDEO="$v" EBO_AUDIO="$a"
       [ -n "$id" ] && export EBO_ROBOT_ID="$id"
-      if [ "$NR" -gt 1 ]; then          # per-robot identity only when there's more than one
+      export EBO_DEVICE_NAME="$name"    # always use the robot's real (account) name
+      if [ "$NR" -gt 1 ]; then          # distinct node/port/path only when there's more than one
         export EBO_NODE="ebo_air2_${id}" EBO_RTSP_PATH="ebo_${id}" \
-               EBO_RTSP_PORT="$((8554 + idx))" EBO_DEVICE_NAME="$name"
+               EBO_RTSP_PORT="$((8554 + idx))"
       fi
       exec python /app/ebo_bridge.py
     ) &
