@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.24.0 — do not ship the app crypto keys (risk reduction)
+- The Enabot app's signing/encryption keys are **no longer in the public code**. They're supplied
+  by the user via the new **payload_key / sign_key** config fields (password-typed). Removed the
+  hardcoded key defaults, the extraction framing in comments, and a personal account id from the
+  tests. Unofficial/free/community wording clarified. The add-on stops with a clear message if
+  the keys aren't set.
+
 ## 0.23.1 — multi-model docs (cloud family) + EBO SE guidance
 - Documented supported models: the **cloud family** (Air 2 verified; Air 2 Plus/S, Mini, EBO X,
   Max experimental — same Agora cloud, discovered automatically). **EBO SE** is LAN/TUTK and is

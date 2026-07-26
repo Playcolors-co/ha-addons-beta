@@ -20,20 +20,22 @@ PUBLISHABLE = [os.path.join(ADDON, f) for f in (
 )]
 
 
-# ---- request signing is correct (verified against signatures captured from the app) ----
-def test_signature_regression():
+# ---- request signing is deterministic and driven by the user-supplied key ----
+def test_signature_deterministic(monkeypatch):
+    monkeypatch.setenv("EBO_SIGN_KEY", "test-key")
+    import importlib
     import ebo_sign
-    h = ebo_sign.sign("GET", "/api/v1/ebox/robots/robot", "", b"",
-                      ts=1784577185, nonce="muSUKk2d")
-    assert h["x-ebo-sign"] == "G7Vwr2513Jua/nnCof+3iJbV3XcadBz9EK50C6CQWjk="
-    body = b'{"ebo_id":"EXAMPLE1","login_region":"GB","lang":"en"}'
-    h2 = ebo_sign.sign("POST", "/api/v1/data/activity/ns/latest", "", body,
-                       ts=1784577185, nonce="mrRM7IKT")
-    assert h2["x-ebo-sign"] == "mtlqdQIz2lvGNDm9r7cdcRfazlmbHCu+qBKBgoK0NDA="
+    importlib.reload(ebo_sign)
+    a = ebo_sign.sign("GET", "/api/v1/ebox/robots/robot", "", b"", ts=1700000000, nonce="EXAMPLE1")
+    b = ebo_sign.sign("GET", "/api/v1/ebox/robots/robot", "", b"", ts=1700000000, nonce="EXAMPLE1")
+    assert a["x-ebo-sign"] == b["x-ebo-sign"]        # deterministic for fixed inputs
+    assert a["x-ebo-sign-version"] == "2"
+    monkeypatch.delenv("EBO_SIGN_KEY")
+    importlib.reload(ebo_sign)
 
 
-def test_signing_key_env_overridable(monkeypatch):
-    # the built-in key is the app's shared constant (same in the APK); a user CAN override it
+def test_signing_key_from_env(monkeypatch):
+    # the key is supplied by the user via EBO_SIGN_KEY — it is NOT shipped with the code
     monkeypatch.setenv("EBO_SIGN_KEY", "custom")
     import importlib
     import ebo_sign

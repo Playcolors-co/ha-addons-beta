@@ -5,9 +5,11 @@ set -e
 
 OPTS=/data/options.json
 
-# --- account login: the ONLY setting in the add-on Configuration tab ---
+# --- account login + the app crypto keys (supplied by you, NOT shipped in the public code) ---
 export EBO_EMAIL="$(jq -r '.email // empty' "$OPTS")"
 export EBO_PASSWORD="$(jq -r '.password // empty' "$OPTS")"
+export EBO_PAYLOAD_KEY="$(jq -r '.payload_key // empty' "$OPTS")"
+export EBO_SIGN_KEY="$(jq -r '.sign_key // empty' "$OPTS")"
 
 # --- EVERYTHING else (region/host included) lives in a PANEL-managed store (/data/panel.json),
 # NOT in add-on options, so the Configuration tab stays clean. Fallback (first boot / migration):
@@ -61,6 +63,11 @@ fi
 
 if [ -z "$EBO_EMAIL" ] || [ -z "$EBO_PASSWORD" ]; then
   echo "[add-on] ERROR: set email and password in the add-on configuration."
+  exit 1
+fi
+if [ -z "$EBO_PAYLOAD_KEY" ] || [ -z "$EBO_SIGN_KEY" ]; then
+  echo "[add-on] ERROR: the app crypto keys are not shipped with this add-on. Set 'payload_key'"
+  echo "[add-on] and 'sign_key' in the configuration (the values for the EBO HOME app)."
   exit 1
 fi
 

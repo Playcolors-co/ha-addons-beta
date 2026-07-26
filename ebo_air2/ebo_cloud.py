@@ -1,8 +1,8 @@
 """
 ebo_cloud.py — standalone Enabot cloud (ecp/ebox) client, pure Python library.
 
-Reconstructed via reverse engineering. Signs requests with ebo_sign (x-ebo-sign v2,
-verified) and authenticates with a `sessionid` cookie (from email+password login).
+Interoperates with the Enabot cloud API: signs requests with ebo_sign (x-ebo-sign v2) and
+authenticates with a `sessionid` cookie (from email+password login).
 
 Known endpoints (regional host, e.g. ebox-eu.enabotserverintl.com):
   POST /api/v2/users/login         {encrypted}               -> Set-Cookie: sessionid
@@ -19,8 +19,8 @@ import secrets as _secrets
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import ebo_sign
 
-# AES-128-GCM key for the login payload (app-level constant, extracted via a Cipher hook)
-_PAYLOAD_KEY = (_os.environ.get("EBO_PAYLOAD_KEY", "REMOVED_KEY")).encode()
+# AES-128-GCM key for the login payload — supplied by the user via EBO_PAYLOAD_KEY, not shipped.
+_PAYLOAD_KEY = (_os.environ.get("EBO_PAYLOAD_KEY", "")).encode()
 
 def _enc(obj):
     iv = _secrets.token_bytes(16)

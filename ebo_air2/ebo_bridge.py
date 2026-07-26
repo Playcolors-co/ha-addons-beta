@@ -70,7 +70,7 @@ OP_SETTINGS = 101028
 OP_INFO = 101004
 OP_SET_SPEED = 103009
 OP_LASER = 103051
-# extra commands, reverse-engineered from the app's command builder (gb.b).
+# extra commands, derived from the app's command set for interoperability.
 # See docs/COMANDI.md for the full catalog. Simple, well-formed payloads only.
 OP_SAY = 103501         # text-to-speech: {"userId":..,"text":".."} — robot speaks
 OP_SLEEP = 101047       # sleep/wake: {"isSleeping": bool} — no movement

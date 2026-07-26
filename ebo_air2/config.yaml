@@ -1,7 +1,7 @@
 name: Enabot (beta)
-version: "0.23.1"
+version: "0.24.0"
 slug: ebo_air2
-description: Manage your Enabot EBO robots in Home Assistant — panel, camera, entities (via Enabot cloud)
+description: Unofficial, free community add-on to manage Enabot EBO robots in Home Assistant (panel, camera, entities). Not affiliated with Enabot.
 url: https://github.com/Playcolors-co/ha-addons-beta
 # Reverse-engineered, unofficial, undocumented cloud API: mark as experimental.
 stage: experimental
@@ -44,6 +44,10 @@ panel_title: Enabot
 options:
   email: ""
   password: ""
+  payload_key: ""
+  sign_key: ""
 schema:
   email: str
   password: password
+  payload_key: password
+  sign_key: password
