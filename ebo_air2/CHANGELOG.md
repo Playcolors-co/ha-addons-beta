@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.19.1 — panel settings (robot + add-on options)
+- The Ingress panel now edits settings: per-robot **video quality, image style, eyes, volume,
+  speed, motion recording** (over MQTT), and **add-on options** (log level, video max height /
+  fps / bitrate / preset, audio, talk) via the Supervisor (Save & restart). Added `hassio_role:
+  manager` so the panel can apply its own options.
+
 ## 0.19.0 — Ingress web panel (Zigbee2MQTT-style sidebar UI)
 - New **sidebar panel** (Ingress): one page to see and manage every robot the add-on bridges —
   online status, battery, wifi, a live JPEG preview, and quick controls (camera on/off, laser,
