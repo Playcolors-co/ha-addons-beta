@@ -1,5 +1,21 @@
 # Changelog — Enabot integration
 
+## 0.17.5 — video hardening (configurable fps + bitrate cap, sturdier encoder)
+- New options **`video_fps`** (default 20) and **`video_bitrate`** kbps VBV cap (default 2500,
+  0 = uncapped), alongside `video_max_height` / `video_preset` — tune resolution, frame rate and
+  bandwidth from the add-on config.
+- **Frame decimation**: drop source frames to hit the target fps, cutting re-encode CPU
+  (720p@20 ≈ 35-40% vs ~55% at 25).
+- **Bitrate cap (VBV `-maxrate/-bufsize`)**: busy scenes can't spike bandwidth/CPU.
+- **Sturdier encoder**: detect an ffmpeg exit (`poll()`) and restart it; `kill()` on stop to end
+  the "Error writing trailer: Broken pipe" log spam.
+
+## 0.17.4 — audio listen A/B CLOSED + SSH-drivable test
+- Live A/B on the real robot (via `audio_tx_test` = off/silence/tone/auto): publishing an audio
+  track — silent OR a sustained tone — NEVER opens the robot's mic. Listen is not achievable via
+  the server SDK. **Talk (→ robot speaker) is confirmed working** (the tone was heard on the
+  robot). `audio_tx_test` option added for the diagnostic; default off.
+
 ## 0.17.3 — audio DIAGNOSTIC build (A/B what opens the robot's mic)
 - Live finding: with 0.17.1 publishing a silent track for 1h+, the robot's mic never opened — yet
   our silence looped back through the mix, proving our track WAS published/active. So "an audio
