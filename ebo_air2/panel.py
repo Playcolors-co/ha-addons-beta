@@ -476,7 +476,7 @@ dialog{border:0;border-radius:14px;padding:0;max-width:440px;width:92%;backgroun
 dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;margin-top:10px}
 </style></head><body>
 <header>
-  <span><span id="title" onclick="goBack()" style="cursor:pointer">🤖 Enabot</span>
+  <span><span id="title" onclick="goBack()" style="cursor:pointer">🤖 EBO</span>
         <span id="acct" style="font-size:12px;color:#8a929a;font-weight:400"></span></span>
   <span><button class="btn" id="addbtn" onclick="openAdd()">+ Add robot</button>
         <button class="btn" onclick="openOpts()">⚙ Settings</button></span>
@@ -581,7 +581,7 @@ function render(force){
   if(!force && s===lastSig){ updateValues(); return; }   // same structure: update in place, don't rebuild (keeps the live preview from flickering)
   lastSig=s;
   document.getElementById('addbtn').style.display = SEL?'none':'';
-  document.getElementById('title').innerHTML = SEL? '‹ Enabot' : '🤖 Enabot';
+  document.getElementById('title').innerHTML = SEL? '‹ EBO' : '🤖 EBO';
   const r = SEL && ROBOTS.find(x=>x.node===SEL);
   document.getElementById('view').innerHTML = r? detailView(r) : listView();
 }

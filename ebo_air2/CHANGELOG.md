@@ -1,5 +1,9 @@
 # Changelog — Enabot integration
 
+## 0.24.1 — clearly-unofficial branding + document the user-supplied keys
+- Renamed to **EBO for Home Assistant (unofficial)** (add-on, integration, panel, logo) to avoid
+  looking official. Documented in DOCS how to supply the required app crypto keys (not shipped).
+
 ## 0.24.0 — do not ship the app crypto keys (risk reduction)
 - The Enabot app's signing/encryption keys are **no longer in the public code**. They're supplied
   by the user via the new **payload_key / sign_key** config fields (password-typed). Removed the

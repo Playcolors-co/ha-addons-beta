@@ -30,6 +30,20 @@ whereas this add-on is amd64/cloud.
 > interoperates with the Enabot cloud through reverse engineering, using **your own**
 > credentials and devices. Use at your own risk; it may break if Enabot changes their API.
 
+## App crypto keys (required — not shipped)
+
+To talk to the Enabot cloud, requests must be signed/encrypted with two keys that are **constants
+embedded in the official EBO HOME app**. To keep this project clean, **those keys are NOT included
+in the add-on** — you provide them yourself in the configuration:
+
+- **`sign_key`** — the HMAC key for the request signature (`x-ebo-sign`).
+- **`payload_key`** — the AES-128-GCM key for the login payload.
+
+They are the same for everyone (app-level constants, not per-user secrets). A technically-inclined
+user can read them from **their own copy of the EBO HOME app** (e.g. by decompiling the APK or
+hooking `javax.crypto.Mac` / the AES cipher with Frida) — the same values the app itself uses.
+Without them the add-on stops with a clear message. This project does not distribute them.
+
 ## Configuration
 
 | option | description |
