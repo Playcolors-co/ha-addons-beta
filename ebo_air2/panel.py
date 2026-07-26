@@ -1,12 +1,12 @@
 """
-panel.py — the add-on's Ingress web UI (a Zigbee2MQTT-style sidebar panel).
+panel.py — the add-on's Ingress web UI (a Zigbee2MQTT-style sidebar panel, "Enabot").
 
-ONE instance for the whole add-on (not per robot). It subscribes to MQTT to aggregate the state
-of every robot the bridges publish, serves a small dashboard, forwards safe control + settings
-commands over MQTT, and lets you edit add-on options (log level, video quality…) via the
-Supervisor. Live preview is an on-demand JPEG grabbed from each robot's RTSP.
+ONE instance for the whole add-on. It subscribes to MQTT to aggregate every robot's state, shows a
+LIST of robots (click one → its detail page with preview + controls + settings), forwards safe
+control/settings commands over MQTT, and edits operational add-on settings stored in
+/data/panel.json (read by run.sh at boot). Live preview = on-demand JPEG from each robot's RTSP.
 
-No extra dependencies: stdlib http.server + paho-mqtt (already used by the bridge) + ffmpeg.
+No extra dependencies: stdlib http.server + paho-mqtt + ffmpeg.
 """
 import json
 import os
@@ -27,33 +27,33 @@ MQTT_PORT = int(os.environ.get("EBO_MQTT_PORT", "1883"))
 MQTT_USER = os.environ.get("EBO_MQTT_USER", "") or None
 MQTT_PASS = os.environ.get("EBO_MQTT_PASS", "") or None
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
-OPTIONS_FILE = "/data/options.json"
+PANEL_CFG = "/data/panel.json"
 
-# Command suffixes the panel may publish (allow-list). Controls + per-robot settings. Movement is
-# deliberately excluded — driving belongs on a dashboard where the user is watching.
+# Command suffixes the panel may publish (allow-list). Movement is excluded on purpose.
 ALLOWED_CMDS = {
-    "camera/set", "laser/set", "dock", "sleep/set", "connected/set", "patrol/start",
-    "say", "talk",
-    # per-robot settings:
+    "camera/set", "laser/set", "dock", "sleep/set", "connected/set", "patrol/start", "say", "talk",
     "video_quality/set", "image_style/set", "volume/set", "talkback_volume/set",
     "speed/set", "sports_record/set", "call_rec/set", "eyes/set",
 }
 
-# Add-on options the panel may edit (others — email/password/region — stay in the add-on config).
+# Operational add-on settings the panel manages (stored in /data/panel.json, read by run.sh).
 EDITABLE_OPTS = {
-    "log_level": {"type": "select", "choices": ["debug", "info", "warning"]},
-    "video_max_height": {"type": "int"},
-    "video_fps": {"type": "int"},
-    "video_bitrate": {"type": "int"},
+    "video": {"type": "bool", "default": True},
+    "audio": {"type": "bool", "default": True},
+    "talk": {"type": "bool", "default": False},
+    "audio_codec": {"type": "select", "choices": [8, 9], "default": 8},
+    "log_level": {"type": "select", "choices": ["debug", "info", "warning"], "default": "info"},
+    "video_max_height": {"type": "int", "default": 720},
+    "video_fps": {"type": "int", "default": 20},
+    "video_bitrate": {"type": "int", "default": 2500},
     "video_preset": {"type": "select",
-                     "choices": ["ultrafast", "superfast", "veryfast", "faster", "fast"]},
-    "audio": {"type": "bool"},
-    "talk": {"type": "bool"},
+                     "choices": ["ultrafast", "superfast", "veryfast", "faster", "fast"],
+                     "default": "ultrafast"},
 }
 
-_robots = {}                 # node -> {name, sn, mac, model, rtsp, online, state{}, camera, url}
+_robots = {}
 _lock = threading.Lock()
-_snap_cache = {}             # node -> (ts, jpeg_bytes)
+_snap_cache = {}
 _client = None
 
 
@@ -110,34 +110,53 @@ def _start_mqtt():
     _client = c
 
 
-# --------------------------- add-on options via the Supervisor ---------------------------
-def _read_options():
+# --------------------------- operational settings (/data/panel.json) ---------------------------
+def _read_cfg():
     try:
-        with open(OPTIONS_FILE) as f:
-            return json.load(f)
+        with open(PANEL_CFG) as f:
+            cur = json.load(f)
     except Exception:
-        return {}
+        cur = {}
+    return {k: cur.get(k, s["default"]) for k, s in EDITABLE_OPTS.items()}
 
 
-def _supervisor(method, path, body=None):
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request("http://supervisor" + path, data=data, method=method)
-    req.add_header("Authorization", "Bearer " + SUPERVISOR_TOKEN)
-    if data:
-        req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.loads(r.read() or b"{}")
+def _coerce(k, v):
+    t = EDITABLE_OPTS[k]["type"]
+    if t == "bool":
+        return v is True or str(v).lower() == "true"
+    if t == "int":
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return EDITABLE_OPTS[k]["default"]
+    if t == "select" and all(isinstance(c, int) for c in EDITABLE_OPTS[k]["choices"]):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return EDITABLE_OPTS[k]["default"]
+    return v
 
 
-def _save_options(patch):
-    """Merge a patch into the current add-on options and apply via the Supervisor, then restart."""
-    opts = _read_options()
+def _save_cfg(patch):
+    cur = _read_cfg()
     for k, v in patch.items():
         if k in EDITABLE_OPTS:
-            opts[k] = v
-    _supervisor("POST", "/addons/self/options", {"options": opts})
-    threading.Thread(target=lambda: (time.sleep(1), _supervisor("POST", "/addons/self/restart")),
-                     daemon=True).start()
+            cur[k] = _coerce(k, v)
+    with open(PANEL_CFG, "w") as f:
+        json.dump(cur, f)
+    log("[panel] saved /data/panel.json — restarting add-on to apply")
+    threading.Thread(target=_restart_self, daemon=True).start()
+
+
+def _restart_self():
+    time.sleep(1)
+    try:
+        req = urllib.request.Request("http://supervisor/addons/self/restart",
+                                     data=b"", method="POST")
+        req.add_header("Authorization", "Bearer " + SUPERVISOR_TOKEN)
+        urllib.request.urlopen(req, timeout=30).read()
+    except Exception as e:
+        log("[panel] self-restart failed:", e)
 
 
 # --------------------------- live preview: one JPEG from RTSP ---------------------------
@@ -152,7 +171,7 @@ def _snapshot(node):
     if cached and now - ts < 2.0:
         return cached
     p = urlparse(url)
-    internal = "rtsp://127.0.0.1:%s%s" % (p.port or 8554, p.path)   # panel shares the container
+    internal = "rtsp://127.0.0.1:%s%s" % (p.port or 8554, p.path)
     try:
         out = subprocess.run(
             ["ffmpeg", "-nostdin", "-rtsp_transport", "tcp", "-i", internal,
@@ -186,9 +205,7 @@ class Handler(BaseHTTPRequestHandler):
             with _lock:
                 return self._send(200, json.dumps(list(_robots.values())))
         if path.endswith("/api/options"):
-            opts = _read_options()
-            return self._send(200, json.dumps(
-                {k: opts.get(k) for k in EDITABLE_OPTS} | {"_schema": EDITABLE_OPTS}))
+            return self._send(200, json.dumps({"values": _read_cfg(), "schema": EDITABLE_OPTS}))
         if path.endswith("/api/snapshot"):
             q = parse_qs(urlparse(self.path).query)
             jpg = _snapshot((q.get("node") or [""])[0])
@@ -203,17 +220,15 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return self._send(400, json.dumps({"error": "bad body"}))
         if path.endswith("/api/cmd"):
-            node = str(body.get("node", ""))
-            suffix = str(body.get("suffix", ""))
-            payload = str(body.get("payload", ""))
+            node, suffix = str(body.get("node", "")), str(body.get("suffix", ""))
             if not node or suffix not in ALLOWED_CMDS or _client is None:
                 return self._send(400, json.dumps({"error": "bad command"}))
-            _client.publish("%s/%s" % (node, suffix), payload)
-            log("[panel] cmd %s/%s = %s" % (node, suffix, payload))
+            _client.publish("%s/%s" % (node, suffix), str(body.get("payload", "")))
+            log("[panel] cmd %s/%s = %s" % (node, suffix, body.get("payload", "")))
             return self._send(200, json.dumps({"ok": True}))
         if path.endswith("/api/options"):
             try:
-                _save_options(body.get("options", {}))
+                _save_cfg(body.get("options", {}))
                 return self._send(200, json.dumps({"ok": True, "restarting": True}))
             except Exception as e:
                 log("[panel] save options failed:", e)
@@ -223,133 +238,141 @@ class Handler(BaseHTTPRequestHandler):
 
 PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EBO robots</title><style>
+<title>Enabot</title><style>
 :root{color-scheme:light dark}
+*{box-sizing:border-box}
 body{font-family:system-ui,sans-serif;margin:0;background:#f4f5f7;color:#111}
 @media(prefers-color-scheme:dark){body{background:#111417;color:#e9ecef}}
-header{padding:14px 18px;font-size:20px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+header{padding:14px 18px;font-size:20px;font-weight:600;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:inherit;border-bottom:1px solid #0001}
 .btn{border:0;border-radius:9px;padding:8px 12px;font-size:13px;cursor:pointer;background:#e6e8eb;color:inherit}
 @media(prefers-color-scheme:dark){.btn{background:#2a3138;color:#e9ecef}}
-.btn:hover{filter:brightness(.95)}
-.btn.pri{background:#2b6cff;color:#fff}
-.wrap{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));padding:0 18px 24px}
-.card{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden}
-@media(prefers-color-scheme:dark){.card{background:#1c2126}}
-.prev{width:100%;aspect-ratio:16/9;object-fit:cover;background:#000;display:block}
-.body{padding:12px 14px}
-.name{font-weight:600;font-size:17px;display:flex;align-items:center;gap:8px}
-.dot{width:9px;height:9px;border-radius:50%;background:#c33}.on{background:#2ea44f}
-.meta{color:#7a828a;font-size:13px;margin:4px 0 10px}
-.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
-.set{margin-top:10px;padding-top:10px;border-top:1px solid #0001;display:none}
-.set.show{display:block}
-label{font-size:12px;color:#8a929a;display:block;margin:8px 0 3px}
-select,input[type=number]{width:100%;padding:7px;border-radius:8px;border:1px solid #0002;background:transparent;color:inherit;box-sizing:border-box}
+.btn:hover{filter:brightness(.95)}.btn.pri{background:#2b6cff;color:#fff}
+.list{padding:10px 14px 24px;max-width:760px;margin:0 auto}
+.rowitem{display:flex;gap:12px;align-items:center;background:#fff;border-radius:12px;padding:10px;margin-bottom:10px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+@media(prefers-color-scheme:dark){.rowitem{background:#1c2126}}
+.rowitem:hover{filter:brightness(.98)}
+.thumb{width:104px;height:60px;border-radius:8px;object-fit:cover;background:#000;flex:none}
+.ri-name{font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px}
+.dot{width:9px;height:9px;border-radius:50%;background:#c33;flex:none}.on{background:#2ea44f}
+.ri-meta{color:#7a828a;font-size:13px;margin-top:3px}
+.chev{margin-left:auto;color:#9aa2aa;font-size:22px;padding-right:6px}
+.empty{padding:40px 18px;color:#8a929a;text-align:center}
+/* detail */
+.detail{max-width:760px;margin:0 auto;padding:0 14px 30px}
+.big{width:100%;aspect-ratio:16/9;object-fit:cover;background:#000;border-radius:12px;display:block;margin-top:12px}
+.dname{font-size:22px;font-weight:700;margin:14px 0 2px;display:flex;align-items:center;gap:9px}
+.dmeta{color:#7a828a;font-size:14px;margin-bottom:8px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.sec{background:#fff;border-radius:12px;padding:14px;margin-top:12px}
+@media(prefers-color-scheme:dark){.sec{background:#1c2126}}
+.sec h4{margin:0 0 8px;font-size:14px;color:#8a929a;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+label{font-size:12px;color:#8a929a;display:block;margin:10px 0 3px}
+select,input[type=number]{width:100%;padding:8px;border-radius:8px;border:1px solid #0002;background:transparent;color:inherit}
 input[type=range]{width:100%}
-.url{font-size:11px;color:#8a929a;word-break:break-all;margin-top:8px}
-.empty{padding:40px 18px;color:#8a929a}
-dialog{border:0;border-radius:14px;padding:0;max-width:420px;width:92%;background:#fff;color:#111}
+.url{font-size:11px;color:#8a929a;word-break:break-all;margin-top:10px}
+dialog{border:0;border-radius:14px;padding:0;max-width:440px;width:92%;background:#fff;color:#111}
 @media(prefers-color-scheme:dark){dialog{background:#1c2126;color:#e9ecef}}
-dialog .body{padding:18px}
-h3{margin:0 0 10px}
-.note{font-size:12px;color:#8a929a;margin-top:10px}
+dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;margin-top:10px}
 </style></head><body>
-<header><span>🤖 EBO robots</span><button class="btn" onclick="openOpts()">⚙ Add-on settings</button></header>
-<div id="wrap" class="wrap"></div>
-<div id="empty" class="empty">Waiting for robots… make sure the add-on is running.</div>
+<header>
+  <span id="title" onclick="back()" style="cursor:pointer">🤖 Enabot</span>
+  <span><button class="btn" id="addbtn" onclick="alert('Coming soon: pair a new robot')">+ Add robot</button>
+        <button class="btn" onclick="openOpts()">⚙ Settings</button></span>
+</header>
+<div id="view"></div>
 
-<dialog id="opts"><div class="body">
-  <h3>Add-on settings</h3>
-  <div id="optform"></div>
+<dialog id="opts"><div class="in">
+  <h3>Add-on settings</h3><div id="optform"></div>
   <div class="row" style="justify-content:flex-end;margin-top:16px">
     <button class="btn" onclick="document.getElementById('opts').close()">Cancel</button>
-    <button class="btn pri" onclick="saveOpts()">Save &amp; restart</button>
-  </div>
-  <div class="note">Saving restarts the add-on (brief video interruption).</div>
+    <button class="btn pri" onclick="saveOpts()">Save &amp; restart</button></div>
+  <div class="note">Saving restarts the add-on (brief interruption).</div>
 </div></dialog>
 
 <script>
 const B = window.location.pathname.replace(/\/$/,'');
 const VQ=["Low","Medium","High"], IS=["Standard","Vivid","Soft"], EY=["Dynamic","Clock","Custom"];
+let ROBOTS=[], SEL=null;
 async function cmd(node,suffix,payload){
   await fetch(B+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({node,suffix,payload})}); setTimeout(load,400);
+    body:JSON.stringify({node,suffix,payload})}); setTimeout(refresh,400);
 }
+function esc(s){return (s==null?'':(''+s))}
 function opt(list,cur){return list.map(v=>`<option ${v==cur?'selected':''}>${v}</option>`).join('')}
-function toggleSet(n){document.getElementById('set-'+n).classList.toggle('show')}
-function card(r){
-  const st=r.state||{}, cam=(r.camera==='on');
+function meta(r){const st=r.state||{};
   const bat=(st.battery!=null)?st.battery+'%':'—', wifi=(st.wifi!=null?st.wifi:(st.rssi!=null?st.rssi:'—'));
-  const n=r.node;
-  return `<div class="card">
-    <img class="prev" src="${B}/api/snapshot?node=${encodeURIComponent(n)}&t=${Date.now()}" onerror="this.style.opacity=.25">
-    <div class="body">
-      <div class="name"><span class="dot ${r.online?'on':''}"></span>${r.name||n}</div>
-      <div class="meta">${r.model||'EBO'} · SN ${r.sn||'—'} · 🔋 ${bat} · 📶 ${wifi}</div>
-      <div class="row">
-        <button class="btn ${cam?'pri':''}" onclick="cmd('${n}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
-        <button class="btn" onclick="cmd('${n}','laser/set','on')">Laser</button>
-        <button class="btn" onclick="cmd('${n}','dock','')">Dock</button>
-        <button class="btn" onclick="toggleSet('${n}')">⚙ Settings</button>
-      </div>
-      <div class="set" id="set-${n}">
-        <label>Video quality</label>
-        <select onchange="cmd('${n}','video_quality/set',this.value)">${opt(VQ, st.video_quality)}</select>
-        <label>Image style</label>
-        <select onchange="cmd('${n}','image_style/set',this.value)">${opt(IS, st.image_style)}</select>
-        <label>Eyes</label>
-        <select onchange="cmd('${n}','eyes/set',this.value)">${opt(EY, st.eyes)}</select>
-        <label>Volume (${st.volume??st.playback_volume??'—'})</label>
-        <input type="range" min="0" max="100" value="${st.volume??st.playback_volume??50}"
-          onchange="cmd('${n}','volume/set',this.value)">
-        <label>Speed (${st.speed??st.move_speed??'—'})</label>
-        <input type="range" min="1" max="100" value="${st.speed??st.move_speed??50}"
-          onchange="cmd('${n}','speed/set',this.value)">
-        <div class="row">
-          <button class="btn" onclick="cmd('${n}','sports_record/set','on')">Motion rec ON</button>
-          <button class="btn" onclick="cmd('${n}','sports_record/set','off')">OFF</button>
-        </div>
-      </div>
-      <div class="url">${r.url||''}</div>
-    </div></div>`;
+  return `${r.model||'EBO'} · 🔋 ${bat} · 📶 ${wifi}`;}
+function thumb(n){return `${B}/api/snapshot?node=${encodeURIComponent(n)}&t=${Math.floor(Date.now()/4000)}`}
+function open(n){SEL=n; render()}
+function back(){SEL=null; render()}
+
+function listView(){
+  if(!ROBOTS.length) return `<div class="empty">Waiting for robots… make sure the add-on is running.</div>`;
+  return `<div class="list">`+ROBOTS.map(r=>`
+    <div class="rowitem" onclick="open('${r.node}')">
+      <img class="thumb" src="${thumb(r.node)}" onerror="this.style.opacity=.25">
+      <div>
+        <div class="ri-name"><span class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
+        <div class="ri-meta">${meta(r)}</div>
+      </div><div class="chev">›</div>
+    </div>`).join('')+`</div>`;
 }
-async function load(){
-  try{
-    const list = await (await fetch(B+'/api/robots')).json();
-    document.getElementById('empty').style.display = list.length?'none':'block';
-    // keep open settings drawers open across refreshes
-    const open = [...document.querySelectorAll('.set.show')].map(e=>e.id);
-    document.getElementById('wrap').innerHTML = list.map(card).join('');
-    open.forEach(id=>{const e=document.getElementById(id); if(e)e.classList.add('show')});
-  }catch(e){}
+function detailView(r){
+  const st=r.state||{}, cam=(r.camera==='on');
+  return `<div class="detail">
+    <img class="big" src="${thumb(r.node)}" onerror="this.style.opacity=.25">
+    <div class="dname"><span class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
+    <div class="dmeta">${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}</div>
+    <div class="row">
+      <button class="btn ${cam?'pri':''}" onclick="cmd('${r.node}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
+      <button class="btn" onclick="cmd('${r.node}','laser/set','on')">Laser</button>
+      <button class="btn" onclick="cmd('${r.node}','dock','')">Dock</button>
+    </div>
+    <div class="sec"><h4>Robot settings</h4>
+      <label>Video quality</label><select onchange="cmd('${r.node}','video_quality/set',this.value)">${opt(VQ,st.video_quality)}</select>
+      <label>Image style</label><select onchange="cmd('${r.node}','image_style/set',this.value)">${opt(IS,st.image_style)}</select>
+      <label>Eyes</label><select onchange="cmd('${r.node}','eyes/set',this.value)">${opt(EY,st.eyes)}</select>
+      <label>Volume (${st.volume??st.playback_volume??'—'})</label>
+      <input type="range" min="0" max="100" value="${st.volume??st.playback_volume??50}" onchange="cmd('${r.node}','volume/set',this.value)">
+      <label>Speed (${st.speed??'—'})</label>
+      <input type="range" min="1" max="100" value="${st.speed??50}" onchange="cmd('${r.node}','speed/set',this.value)">
+      <div class="row">
+        <button class="btn" onclick="cmd('${r.node}','sports_record/set','on')">Motion rec ON</button>
+        <button class="btn" onclick="cmd('${r.node}','sports_record/set','off')">OFF</button>
+      </div>
+    </div>
+    <div class="url">${esc(r.url)}</div>
+  </div>`;
+}
+function render(){
+  document.getElementById('addbtn').style.display = SEL?'none':'';
+  document.getElementById('title').innerHTML = SEL? '‹ Enabot' : '🤖 Enabot';
+  const r = SEL && ROBOTS.find(x=>x.node===SEL);
+  document.getElementById('view').innerHTML = r? detailView(r) : listView();
+}
+async function refresh(){
+  try{ ROBOTS = await (await fetch(B+'/api/robots')).json(); render(); }catch(e){}
 }
 async function openOpts(){
-  const d = await (await fetch(B+'/api/options')).json(); const sc=d._schema;
+  const d = await (await fetch(B+'/api/options')).json(); const sc=d.schema, v=d.values;
   let h='';
-  for(const k in sc){
-    const s=sc[k], v=d[k];
+  for(const k in sc){const s=sc[k];
     h+=`<label>${k}</label>`;
-    if(s.type==='bool') h+=`<select id="o-${k}"><option ${v?'selected':''}>true</option><option ${!v?'selected':''}>false</option></select>`;
-    else if(s.type==='select') h+=`<select id="o-${k}">${s.choices.map(c=>`<option ${c==v?'selected':''}>${c}</option>`).join('')}</select>`;
-    else h+=`<input id="o-${k}" type="number" value="${v??''}">`;
+    if(s.type==='bool') h+=`<select id="o-${k}"><option ${v[k]?'selected':''}>true</option><option ${!v[k]?'selected':''}>false</option></select>`;
+    else if(s.type==='select') h+=`<select id="o-${k}">${s.choices.map(c=>`<option ${c==v[k]?'selected':''}>${c}</option>`).join('')}</select>`;
+    else h+=`<input id="o-${k}" type="number" value="${v[k]??''}">`;
   }
   document.getElementById('optform').innerHTML=h;
   document.getElementById('opts').showModal();
 }
 async function saveOpts(){
-  const d = await (await fetch(B+'/api/options')).json(); const sc=d._schema; const out={};
-  for(const k in sc){
-    const el=document.getElementById('o-'+k); if(!el) continue;
-    if(sc[k].type==='bool') out[k]=(el.value==='true');
-    else if(sc[k].type==='int') out[k]=parseInt(el.value||'0',10);
-    else out[k]=el.value;
-  }
-  await fetch(B+'/api/options',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({options:out})});
-  document.getElementById('opts').close();
-  alert('Saved. The add-on is restarting…');
+  const d = await (await fetch(B+'/api/options')).json(); const sc=d.schema; const out={};
+  for(const k in sc){const el=document.getElementById('o-'+k); if(!el)continue;
+    out[k] = sc[k].type==='bool' ? (el.value==='true') : el.value;}
+  await fetch(B+'/api/options',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({options:out})});
+  document.getElementById('opts').close(); alert('Saved. The add-on is restarting…');
 }
-load(); setInterval(load, 4000);
+refresh(); setInterval(refresh, 4000);
 </script></body></html>"""
 
 

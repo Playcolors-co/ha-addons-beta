@@ -5,27 +5,44 @@ set -e
 
 OPTS=/data/options.json
 
+# --- bootstrap / connection (stays in the add-on Configuration tab) ---
 export EBO_EMAIL="$(jq -r '.email // empty' "$OPTS")"
 export EBO_PASSWORD="$(jq -r '.password // empty' "$OPTS")"
 export EBO_REGION="$(jq -r '.region // "GB"' "$OPTS")"
 export EBO_HOST="$(jq -r '.host // "ebox-eu.enabotserverintl.com"' "$OPTS")"
-export EBO_VIDEO="$(jq -r 'if .video==false then "0" else "1" end' "$OPTS")"
-# experimental encoded-video path (may crash the SDK) — off unless explicitly enabled
-export EBO_VIDEO_ENCODED="$(jq -r 'if .video_encoded==true then "1" else "0" end' "$OPTS")"
-export EBO_AUDIO="$(jq -r 'if .audio==true then "1" else "0" end' "$OPTS")"
-# talk (you -> robot speaker): publish an audio track so ebo_air2/talk can play audio on the robot
-export EBO_TALK="$(jq -r 'if .talk==true then "1" else "0" end' "$OPTS")"
-# robot mic codec payload type: 8 (monitor, default) or 9 (two-way call). Flip if silent.
-export EBO_AUDIO_PT="$(jq -r '.audio_codec // 8' "$OPTS")"
-# DIAG A/B: audio TX keep-alive to test what opens the robot mic — off | silence | tone | auto
-export EBO_AUDIO_TX_TEST="$(jq -r '.audio_tx_test // "off"' "$OPTS")"
-export EBO_LOG_LEVEL="$(jq -r '.log_level // "info"' "$OPTS")"
-# video re-encode tuning: max height (0 = native) + libx264 preset
-export EBO_VIDEO_MAX_HEIGHT="$(jq -r '.video_max_height // 720' "$OPTS")"
-# output frame rate (drop frames to cut CPU) and bitrate cap in kbps (0 = uncapped)
-export EBO_VIDEO_FPS="$(jq -r '.video_fps // 20' "$OPTS")"
-export EBO_VIDEO_BITRATE="$(jq -r '.video_bitrate // 2500' "$OPTS")"
-export EBO_VIDEO_PRESET="$(jq -r '.video_preset // "ultrafast"' "$OPTS")"
+
+# --- operational settings live in a PANEL-managed store (/data/panel.json), NOT in add-on
+# options, so they don't clutter the Configuration tab. Fallback (first boot / migration):
+# panel.json -> options.json -> built-in default. ---
+PANEL_CFG=/data/panel.json
+pget() {  # pget <key> <default>
+  local v=""
+  [ -f "$PANEL_CFG" ] && v="$(jq -r --arg k "$1" '.[$k] // empty' "$PANEL_CFG" 2>/dev/null || true)"
+  [ -z "$v" ] && v="$(jq -r --arg k "$1" '.[$k] // empty' "$OPTS" 2>/dev/null || true)"
+  [ -z "$v" ] && v="$2"
+  printf '%s' "$v"
+}
+pbool() { [ "$(pget "$1" "$2")" = "true" ] && echo 1 || echo 0; }
+
+export EBO_VIDEO="$(pbool video true)"
+export EBO_AUDIO="$(pbool audio true)"
+export EBO_TALK="$(pbool talk false)"
+export EBO_AUDIO_PT="$(pget audio_codec 8)"
+export EBO_LOG_LEVEL="$(pget log_level info)"
+export EBO_VIDEO_MAX_HEIGHT="$(pget video_max_height 720)"
+export EBO_VIDEO_FPS="$(pget video_fps 20)"
+export EBO_VIDEO_BITRATE="$(pget video_bitrate 2500)"
+export EBO_VIDEO_PRESET="$(pget video_preset ultrafast)"
+
+# seed the panel store once from the resolved (migrated) values, so the panel has a file to edit
+if [ ! -f "$PANEL_CFG" ]; then
+  printf '{"video":%s,"audio":%s,"talk":%s,"audio_codec":%s,"log_level":"%s","video_max_height":%s,"video_fps":%s,"video_bitrate":%s,"video_preset":"%s"}\n' \
+    "$([ "$EBO_VIDEO" = 1 ] && echo true || echo false)" \
+    "$([ "$EBO_AUDIO" = 1 ] && echo true || echo false)" \
+    "$([ "$EBO_TALK" = 1 ] && echo true || echo false)" \
+    "$EBO_AUDIO_PT" "$EBO_LOG_LEVEL" "$EBO_VIDEO_MAX_HEIGHT" "$EBO_VIDEO_FPS" "$EBO_VIDEO_BITRATE" \
+    "$EBO_VIDEO_PRESET" > "$PANEL_CFG" 2>/dev/null || true
+fi
 ROBOT_ID="$(jq -r '.robot_id // 0' "$OPTS")"
 [ "$ROBOT_ID" != "0" ] && export EBO_ROBOT_ID="$ROBOT_ID"
 

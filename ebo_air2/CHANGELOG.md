@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.20.0 — panel redesign (list → detail) + operational settings out of the config tab
+- Panel renamed **Enabot**, now a **list** of robots (thumbnail, name, battery, wifi) — click a
+  row to open its **detail page** (big preview + controls + robot settings).
+- **Operational settings moved out of the add-on Configuration tab** into a panel-managed store
+  (`/data/panel.json`, read by run.sh): video/audio/talk, video quality (max height/fps/bitrate/
+  preset), audio codec, log level. The config tab now holds ONLY account/connection
+  (email/password/region/host/robot_id/host_ip). Existing values are migrated on first boot.
+
 ## 0.19.2 — tidy config (panel-first)
 - Config tab is now just the essentials (account + connection); the panel is the place for
   operational settings. Removed the diagnostic `audio_tx_test` and the unusable `video_encoded`
