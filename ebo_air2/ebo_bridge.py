@@ -133,6 +133,7 @@ class Bridge:
         self.telemetry = {}
         self.settings = {}
         self.info = {}
+        self._integ_announced = False    # announced this robot to the companion integration?
         self.rtc_state = None
         self.routes = []                 # [(routeName, id)] from the robot
         self.patrol_choice = PATROL_AUTO  # currently selected patrol route
@@ -799,6 +800,15 @@ class Bridge:
         elif mid == OP_INFO:
             self.info = data
             self._publish_telemetry()      # refresh fw/ip/ssid diagnostic sensors
+            # Now that we know the robot's mac/sn, announce it to the companion integration and
+            # refresh the MQTT device blocks (so the mac connection is present for the merge).
+            if not self._integ_announced and self.info.get("mac"):
+                self._integ_announced = True
+                self._publish_integration_discovery()
+                try:
+                    self._publish_discovery(self.mqtt)
+                except Exception as e:
+                    log("[discovery] re-announce failed:", e)
         elif mid == RESP_ROUTES:
             lst = data.get("list") or []
             self.routes = [(r.get("routeName") or ("route %s" % r.get("id")),
@@ -868,13 +878,36 @@ class Bridge:
         c.loop_start()
 
     def _dev(self):
-        return {
+        dev = {
             "identifiers": [NODE],
             "name": os.environ.get("EBO_DEVICE_NAME", "EBO Air 2"),
             "manufacturer": "Enabot",
             "model": self.info.get("model", "EBO Air 2"),
             "sw_version": self.info.get("masterMcuVersion", ""),
         }
+        # The robot's MAC lets the companion integration's live camera MERGE into THIS same
+        # device (HA joins devices that share a connection), so each robot is one device.
+        mac = self.info.get("mac")
+        if mac:
+            dev["connections"] = [["mac", mac]]
+        return dev
+
+    def _publish_integration_discovery(self):
+        """Announce this robot to the companion HA integration (custom_components/ebo_air2),
+        which turns it into a 'device detected → Add' flow that creates a live camera. Retained
+        so HA sees it whenever it (re)starts. Topic namespace is fixed regardless of EBO_NODE."""
+        if not self.mqtt or not self.info.get("mac"):
+            return
+        payload = {
+            "node": NODE,
+            "name": os.environ.get("EBO_DEVICE_NAME", "EBO Air 2"),
+            "sn": self.info.get("sn", ""),
+            "mac": self.info.get("mac", ""),
+            "model": self.info.get("model", "EBO Air 2"),
+            "rtsp": self._rtsp_url(),
+        }
+        self.mqtt.publish("ebo_air2/discovery/%s" % NODE, json.dumps(payload), retain=True)
+        log("[discovery] announced robot to the EBO integration (%s)" % payload["name"])
 
     def _disc(self, comp, oid, cfg):
         cfg["device"] = self._dev()

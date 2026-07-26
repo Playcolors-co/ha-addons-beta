@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.18.0 — auto-discovery for the companion HA integration (device + live camera per robot)
+- The add-on now announces each robot on retained MQTT `ebo_air2/discovery/<node>` with its
+  name, serial, **MAC**, model and RTSP URL. The companion **Enabot EBO integration** (HACS,
+  `custom_components/ebo_air2`) turns this into a *"device detected → Add"* flow that creates a
+  **device named after the robot** with a **live camera** (RTSP → HA stream/go2rtc = WebRTC).
+- The MQTT device now includes the robot's **MAC as a connection**, so the integration's camera
+  **merges into the same device** as the sensors/controls — one complete device per robot.
+- No manual Generic Camera, no `/config` YAML. Multiple robots each auto-create their own
+  device + camera named after them.
+
 ## 0.17.5 — video hardening (configurable fps + bitrate cap, sturdier encoder)
 - New options **`video_fps`** (default 20) and **`video_bitrate`** kbps VBV cap (default 2500,
   0 = uncapped), alongside `video_max_height` / `video_preset` — tune resolution, frame rate and
