@@ -1,40 +1,40 @@
-# EBO — vista "come l'app": video con controlli in overlay
+# EBO — "app-like" view: video with overlaid controls
 
-Riproduce la schermata a tutto schermo dell'app: lo **stream della camera** con sopra un
-**D-pad** per muovere il robot, più laser, ritorno alla base, "parla", velocità e stato.
+Reproduces the app's full-screen screen: the **camera stream** with a **D-pad** on top to move the
+robot, plus laser, return to base, "talk", speed and status.
 
-## Prerequisiti (lato Home Assistant)
-1. **Add-on avviato** con `video: true` (e, se vuoi audio, `audio: true` / `talk: true`).
-2. **Un'entità camera** che punta allo stream RTSP dell'add-on. Il modo migliore è **go2rtc**
-   (incluso in HA OS) così hai anche l'**audio** e bassa latenza:
-   - In `configuration.yaml` (o nella config di go2rtc) aggiungi lo stream:
+## Prerequisites (Home Assistant side)
+1. **Add-on started** with `video: true` (and, if you want audio, `audio: true` / `talk: true`).
+2. **A camera entity** pointing at the add-on's RTSP stream. The best way is **go2rtc**
+   (included in HA OS) so you also get **audio** and low latency:
+   - In `configuration.yaml` (or in the go2rtc config) add the stream:
      ```yaml
      go2rtc:
        streams:
          ebo: rtsp://<IP-ADD-ON>:8554/ebo
      ```
-     e crea la camera generica che lo usa, **oppure** usa la card WebRTC (`custom:webrtc-camera`)
-     con `url: ebo`.
-   - In alternativa rapida (solo video, niente audio): **Impostazioni → Dispositivi → Aggiungi
-     integrazione → Generic Camera**, Stream URL = `rtsp://<IP-ADD-ON>:8554/ebo`.
-   Chiama l'entità risultante, ad es., `camera.ebo`. **Sostituisci `camera.ebo`** sotto con la tua.
-3. Accendi lo switch **EBO camera** (o `mqtt.publish` su `ebo_air2/camera/set` = `on`): solo così
-   il bridge si iscrive al video del robot.
+     and create the generic camera that uses it, **or** use the WebRTC card (`custom:webrtc-camera`)
+     with `url: ebo`.
+   - Quick alternative (video only, no audio): **Settings → Devices → Add
+     integration → Generic Camera**, Stream URL = `rtsp://<IP-ADD-ON>:8554/ebo`.
+   Name the resulting entity, e.g., `camera.ebo`. **Replace `camera.ebo`** below with yours.
+3. Turn on the **EBO camera** switch (or `mqtt.publish` to `ebo_air2/camera/set` = `on`): only then
+   does the bridge subscribe to the robot's video.
 
-## Card A — `picture-elements` (nativa, nessun componente extra)
-Incolla come nuova card (modalità YAML). Le frecce muovono il robot con un "passo" morbido che si
-ferma da solo (`hold`), come un tap ripetibile. **Sostituisci `camera.ebo`** e gli `entity` di stato
-con gli ID reali (li trovi in Impostazioni → Dispositivi → "EBO Air 2").
+## Card A — `picture-elements` (native, no extra component)
+Paste as a new card (YAML mode). The arrows move the robot with a soft "step" that stops on its own
+(`hold`), like a repeatable tap. **Replace `camera.ebo`** and the status `entity` values
+with the real IDs (find them in Settings → Devices → "EBO Air 2").
 
 ```yaml
 type: picture-elements
 camera_image: camera.ebo
 camera_view: live
 elements:
-  # ---------- MOVIMENTO (D-pad in basso a sinistra) ----------
+  # ---------- MOVEMENT (D-pad, bottom left) ----------
   - type: icon
     icon: mdi:chevron-up
-    title: Avanti
+    title: Forward
     style: {left: 15%, top: 62%, color: white, "--mdc-icon-size": 44px}
     tap_action:
       action: call-service
@@ -42,7 +42,7 @@ elements:
       data: {topic: ebo_air2/move/vector, payload: '{"lx":0,"ly":-55,"rx":0,"ry":0,"hold":0.8}'}
   - type: icon
     icon: mdi:chevron-down
-    title: Indietro
+    title: Backward
     style: {left: 15%, top: 90%, color: white, "--mdc-icon-size": 44px}
     tap_action:
       action: call-service
@@ -50,7 +50,7 @@ elements:
       data: {topic: ebo_air2/move/vector, payload: '{"lx":0,"ly":55,"rx":0,"ry":0,"hold":0.8}'}
   - type: icon
     icon: mdi:chevron-left
-    title: Gira sinistra
+    title: Turn left
     style: {left: 5%, top: 76%, color: white, "--mdc-icon-size": 44px}
     tap_action:
       action: call-service
@@ -58,7 +58,7 @@ elements:
       data: {topic: ebo_air2/move/vector, payload: '{"lx":0,"ly":0,"rx":-65,"ry":0,"hold":0.6}'}
   - type: icon
     icon: mdi:chevron-right
-    title: Gira destra
+    title: Turn right
     style: {left: 25%, top: 76%, color: white, "--mdc-icon-size": 44px}
     tap_action:
       action: call-service
@@ -73,7 +73,7 @@ elements:
       service: mqtt.publish
       data: {topic: ebo_air2/move/stop, payload: ""}
 
-  # ---------- AZIONI (colonna a destra) ----------
+  # ---------- ACTIONS (right column) ----------
   - type: icon
     icon: mdi:laser-pointer
     title: Laser
@@ -88,7 +88,7 @@ elements:
       data: {topic: ebo_air2/laser/set, payload: "off"}
   - type: icon
     icon: mdi:home-import-outline
-    title: Torna alla base
+    title: Return to base
     style: {right: 4%, top: 72%, color: white, "--mdc-icon-size": 34px}
     tap_action:
       action: call-service
@@ -101,12 +101,12 @@ elements:
     tap_action:
       action: call-service
       service: mqtt.publish
-      data: {topic: ebo_air2/cmd, payload: '{"id":102101,"data":{}}'}   # opzionale/best-effort
+      data: {topic: ebo_air2/cmd, payload: '{"id":102101,"data":{}}'}   # optional/best-effort
 
-  # ---------- VELOCITÀ (in alto a destra) ----------
+  # ---------- SPEED (top right) ----------
   - type: icon
     icon: mdi:speedometer-slow
-    title: Più lento
+    title: Slower
     style: {right: 16%, top: 8%, color: white, "--mdc-icon-size": 28px}
     tap_action:
       action: call-service
@@ -114,14 +114,14 @@ elements:
       data: {topic: ebo_air2/speed/set, payload: "40"}
   - type: icon
     icon: mdi:speedometer
-    title: Più veloce
+    title: Faster
     style: {right: 4%, top: 8%, color: white, "--mdc-icon-size": 28px}
     tap_action:
       action: call-service
       service: mqtt.publish
       data: {topic: ebo_air2/speed/set, payload: "95"}
 
-  # ---------- STATO (in alto a sinistra) — sostituisci con i tuoi entity id ----------
+  # ---------- STATUS (top left) — replace with your own entity ids ----------
   - type: state-label
     entity: sensor.ebo_battery
     prefix: "🔋 "
@@ -131,15 +131,15 @@ elements:
     style: {left: 3%, top: 12%, color: white}
 ```
 
-### Note
-- Il D-pad usa `ebo_air2/move/vector` con `hold`: ogni tocco muove un po' e **si ferma da solo**.
-  Vuoi passi più lunghi/corti? cambia `hold` (secondi) o i valori `ly`/`rx` (−100..100).
-- **Sicurezza:** questi comandi *muovono* il robot. Usali solo con il robot in area sicura e
-  sotto la tua supervisione (mai da remoto se non sai cosa c'è intorno).
-- Vuoi anche **parlare** dal video? aggiungi un'icona `mdi:microphone` che apre un `input_text`
-  con l'URL audio e pubblica su `ebo_air2/talk` (serve `talk: true`).
+### Notes
+- The D-pad uses `ebo_air2/move/vector` with `hold`: each tap moves a little and **stops on its own**.
+  Want longer/shorter steps? Change `hold` (seconds) or the `ly`/`rx` values (−100..100).
+- **Safety:** these commands *move* the robot. Use them only with the robot in a safe area and
+  under your supervision (never remotely if you don't know what's around it).
+- Also want to **talk** from the video? Add an `mdi:microphone` icon that opens an `input_text`
+  with the audio URL and publishes to `ebo_air2/talk` (requires `talk: true`).
 
-## Card B — joystick analogico (fedele all'app, trascinamento)
-Richiede una card custom. Se la vuoi te la scrivo: un file JS (risorsa Lovelace) che disegna un
-**joystick trascinabile** sopra il video e pubblica in continuo su `ebo_air2/move/vector`
-(rilascio → stop), esattamente come il pad analogico dell'app. Dimmi "fai la card B".
+## Card B — analog joystick (faithful to the app, drag)
+Requires a custom card. If you want it I'll write it for you: a JS file (Lovelace resource) that draws
+a **draggable joystick** on top of the video and publishes continuously to `ebo_air2/move/vector`
+(release → stop), exactly like the app's analog pad. Just say "make card B".

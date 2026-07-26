@@ -88,7 +88,7 @@ OP_PATROL = 103061       # start patrol: {"mode","trackTarget","routeId","voiceI
 OP_GET_ROUTES = 104001   # ask the robot for the saved patrol routes
 RESP_ROUTES = 104002     # robot's reply: {"status", "list":[{id, routeName, routeFile}]}
 
-# --- extra controls mapped from the decompiled command builder (docs/COMANDI-APK.md) ---
+# --- extra controls mapped from the decompiled command builder (docs/COMMANDS-APK.md) ---
 OP_ROTATE = 103001        # {"angle": int} — rotate the head/body by an angle
 OP_VIDEO_QUALITY = 102055  # {"videoQuality": int}  3=High 2=Medium 1=Low
 OP_IMAGE_STYLE = 102057   # {"imageStyle": int}  0/1/2
@@ -813,7 +813,7 @@ class Bridge:
             lst = data.get("list") or []
             self.routes = [(r.get("routeName") or ("route %s" % r.get("id")),
                             r.get("id")) for r in lst if r.get("id") is not None]
-            log("[patrol] %d route(s) dal robot" % len(self.routes))
+            log("[patrol] %d route(s) from the robot" % len(self.routes))
             self._publish_patrol_select()
 
     # ---------------- control loop ----------------
@@ -1073,7 +1073,7 @@ class Bridge:
             "name": "EBO start patrol", "command_topic": "%s/patrol/start" % NODE,
             "icon": "mdi:play-circle-outline"})
 
-        # ---- extra controls from the full command catalog (docs/COMANDI-APK.md) ----
+        # ---- extra controls from the full command catalog (docs/COMMANDS-APK.md) ----
         # rotate by an angle (degrees). A number that sends 103001 on change.
         self._disc("number", "rotate", {
             "name": "EBO rotate", "command_topic": "%s/rotate/set" % NODE,
@@ -1170,7 +1170,7 @@ class Bridge:
         c.subscribe("%s/laser/set" % NODE)
         c.subscribe("%s/speed/set" % NODE)
         c.subscribe("%s/move/+" % NODE)
-        # canale generico per un agente: JSON {"ly":-50,"rx":0,"hold":1.0}
+        # generic channel for an agent: JSON {"ly":-50,"rx":0,"hold":1.0}
         c.subscribe("%s/move/vector" % NODE)
         c.subscribe("%s/joystick" % NODE)      # {"x":-1..1,"y":-1..1} from a joystick card
         c.subscribe("%s/sleep/set" % NODE)

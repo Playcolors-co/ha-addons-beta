@@ -1,5 +1,9 @@
 # Changelog — Enabot integration
 
+## 0.18.2 — English-only (docs + remaining strings)
+- Translated all docs to English and renamed GUIDA-HA→GUIDE-HA, COMANDI-APK→COMMANDS-APK;
+  fixed the last two Italian strings in code (a log line + a comment). Everything is English now.
+
 ## 0.18.1 — use the robot's real name for a single robot too
 - The device/camera now takes the robot's actual account name even with one robot (was the
   generic "EBO Air 2").
@@ -243,7 +247,7 @@
 - No functional/entity changes vs 0.15.0.
 
 ## 0.15.0 — full control catalog + rich telemetry
-Mapped the **entire command set** from the app (112 commands, see `docs/COMANDI-APK.md`) and
+Mapped the **entire command set** from the app (112 commands, see `docs/COMMANDS-APK.md`) and
 exposed the useful ones as first-class Home Assistant entities.
 
 - **New controls**: rotate by angle, video quality (Low/Medium/High), image style, shoot mode,
