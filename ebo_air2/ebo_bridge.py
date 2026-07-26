@@ -150,6 +150,9 @@ class Bridge:
         self.mqtt_conf = mqtt_conf
         self.video = None
         self.video_enabled = os.environ.get("EBO_VIDEO", "1") == "1"
+        # expose HA entities over MQTT discovery (default on). Off = native integration owns them;
+        # MQTT is still used for the panel's state/commands, just not for entity discovery.
+        self.expose_mqtt = os.environ.get("EBO_EXPOSE_MQTT", "1") == "1"
         self.audio_enabled = os.environ.get("EBO_AUDIO", "0") == "1"   # listen (optional)
         self.talk_enabled = os.environ.get("EBO_TALK", "0") == "1"     # speak TO the robot
         self._talk_lock = threading.Lock()
@@ -898,6 +901,8 @@ class Bridge:
         so HA sees it whenever it (re)starts. Topic namespace is fixed regardless of EBO_NODE."""
         if not self.mqtt or not self.info.get("mac"):
             return
+        api_port = os.environ.get("EBO_API_PORT", "8098")
+        host_ip = self.host_ip or ""
         payload = {
             "node": NODE,
             "name": os.environ.get("EBO_DEVICE_NAME", "EBO Air 2"),
@@ -905,6 +910,9 @@ class Bridge:
             "mac": self.info.get("mac", ""),
             "model": self.info.get("model", "EBO Air 2"),
             "rtsp": self._rtsp_url(),
+            # for the native HA integration: its data/command API + token
+            "api": ("http://%s:%s" % (host_ip, api_port)) if host_ip else "",
+            "token": os.environ.get("EBO_API_TOKEN", ""),
         }
         self.mqtt.publish("ebo_air2/discovery/%s" % NODE, json.dumps(payload), retain=True)
         log("[discovery] announced robot to the EBO integration (%s)" % payload["name"])
@@ -960,6 +968,11 @@ class Bridge:
 
     def _publish_discovery(self, c):
         c.publish("%s/status" % NODE, "online", retain=True)
+        if not self.expose_mqtt:
+            # native-integration mode: skip MQTT entity discovery (the panel/integration still
+            # get state via <node>/state and commands via the topics). Status stays for the panel.
+            log("[MQTT] expose_mqtt=off — not publishing HA entity discovery")
+            return
         st = "%s/state" % NODE
 
         # clean up entities removed in v0.4.4 (patrol / AI tracking were not real

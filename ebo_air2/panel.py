@@ -36,6 +36,8 @@ MQTT_PORT = int(os.environ.get("EBO_MQTT_PORT", "1883"))
 MQTT_USER = os.environ.get("EBO_MQTT_USER", "") or None
 MQTT_PASS = os.environ.get("EBO_MQTT_PASS", "") or None
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
+API_PORT = int(os.environ.get("EBO_API_PORT", "8098"))
+API_TOKEN = os.environ.get("EBO_API_TOKEN", "")
 PANEL_CFG = "/data/panel.json"
 
 # Command suffixes the panel may publish (allow-list). Movement is excluded on purpose.
@@ -51,6 +53,7 @@ EDITABLE_OPTS = {
     "region": {"type": "text", "default": "GB"},
     "host": {"type": "text", "default": "ebox-eu.enabotserverintl.com"},
     "robot_id": {"type": "int", "default": 0},
+    "expose_mqtt": {"type": "bool", "default": True},
     "video": {"type": "bool", "default": True},
     "audio": {"type": "bool", "default": True},
     "talk": {"type": "bool", "default": False},
@@ -252,6 +255,11 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def _authed(self):
+        # the ingress server (8099) is authenticated by HA; the API port (8098) needs the token
+        return (not getattr(self.server, "require_token", False)
+                or self.headers.get("X-Enabot-Token") == API_TOKEN)
+
     def _send(self, code, body, ctype="application/json"):
         if isinstance(body, str):
             body = body.encode("utf-8")
@@ -262,6 +270,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if not self._authed():
+            return self._send(403, json.dumps({"error": "forbidden"}))
         path = urlparse(self.path).path.rstrip("/")
         if path.endswith("/api/robots"):
             with _lock:
@@ -278,6 +288,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, PAGE, "text/html; charset=utf-8")
 
     def do_POST(self):
+        if not self._authed():
+            return self._send(403, json.dumps({"error": "forbidden"}))
         path = urlparse(self.path).path.rstrip("/")
         try:
             n = int(self.headers.get("Content-Length", 0))
@@ -517,7 +529,14 @@ def main():
         _start_mqtt()
     except Exception as e:
         log("[panel] MQTT connect failed:", e)
+    # token-guarded data API for the native integration (host-mapped port)
+    api = ThreadingHTTPServer(("0.0.0.0", API_PORT), Handler)
+    api.require_token = True
+    threading.Thread(target=api.serve_forever, daemon=True).start()
+    log("[panel] data API on :%d (token-guarded)" % API_PORT)
+    # Ingress UI (authenticated by HA)
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    srv.require_token = False
     log("[panel] Ingress UI on :%d" % PORT)
     srv.serve_forever()
 

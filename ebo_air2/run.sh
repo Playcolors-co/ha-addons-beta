@@ -33,12 +33,21 @@ export EBO_VIDEO_MAX_HEIGHT="$(pget video_max_height 720)"
 export EBO_VIDEO_FPS="$(pget video_fps 20)"
 export EBO_VIDEO_BITRATE="$(pget video_bitrate 2500)"
 export EBO_VIDEO_PRESET="$(pget video_preset ultrafast)"
+# expose HA entities over MQTT discovery (on) or leave them to the native integration (off)
+export EBO_EXPOSE_MQTT="$(pbool expose_mqtt true)"
 ROBOT_ID="$(pget robot_id 0)"
 [ "$ROBOT_ID" != "0" ] && export EBO_ROBOT_ID="$ROBOT_ID"
 
+# API token for the native integration to read the panel's data API (persisted in /data)
+if [ ! -f /data/api_token ]; then
+  head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' > /data/api_token 2>/dev/null || true
+fi
+export EBO_API_TOKEN="$(cat /data/api_token 2>/dev/null || echo '')"
+export EBO_API_PORT="${EBO_API_PORT:-8098}"
+
 # seed the panel store once from the resolved (migrated) values, so the panel has a file to edit
 if [ ! -f "$PANEL_CFG" ]; then
-  printf '{"region":"%s","host":"%s","robot_id":%s,"video":%s,"audio":%s,"talk":%s,"audio_codec":%s,"log_level":"%s","video_max_height":%s,"video_fps":%s,"video_bitrate":%s,"video_preset":"%s"}\n' \
+  printf '{"region":"%s","host":"%s","robot_id":%s,"expose_mqtt":true,"video":%s,"audio":%s,"talk":%s,"audio_codec":%s,"log_level":"%s","video_max_height":%s,"video_fps":%s,"video_bitrate":%s,"video_preset":"%s"}\n' \
     "$EBO_REGION" "$EBO_HOST" "$ROBOT_ID" \
     "$([ "$EBO_VIDEO" = 1 ] && echo true || echo false)" \
     "$([ "$EBO_AUDIO" = 1 ] && echo true || echo false)" \

@@ -1,5 +1,5 @@
 name: Enabot (beta)
-version: "0.21.0"
+version: "0.22.0"
 slug: ebo_air2
 description: Control and telemetry for the Enabot EBO Air 2 in Home Assistant (via Enabot cloud)
 url: https://github.com/Playcolors-co/ha-addons-beta
@@ -17,6 +17,8 @@ ports:
   8555/tcp: 8555
   8556/tcp: 8556
   8557/tcp: 8557
+  # data API for the native HA integration (token-guarded)
+  8098/tcp: 8098
 ports_description:
   8554/tcp: "RTSP video (robot 1) — rtsp://<HA-IP>:8554/ebo"
   8555/tcp: "RTSP video (robot 2, if any)"

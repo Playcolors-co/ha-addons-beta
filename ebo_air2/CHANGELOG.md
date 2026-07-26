@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.22.0 — groundwork for the native integration (expose_mqtt toggle + data API)
+- New **`expose_mqtt`** setting (default on): off = don't publish HA entities over MQTT (the
+  native integration will own them). Panel state/commands still use MQTT.
+- The panel now also serves a **token-guarded data API** on port 8098 (host-mapped) for the
+  upcoming native integration; the API URL + token are included in the discovery announce.
+
 ## 0.21.0 — pair a NEW robot from the panel (QR, no phone)
 - The **+ Add robot** button now runs the real pairing: enter the Wi-Fi, the panel mints a cloud
   **bind key**, shows a **QR** the robot's camera scans to join Wi-Fi + bind to your account, and
