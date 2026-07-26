@@ -282,13 +282,12 @@ class Bridge:
             # REQUIRED: run the audio decode/playout pipeline so the frame observers fire.
             ccfg_kw["enable_audio_recording_or_playout"] = 1
         ccfg = RTCConnConfig(**ccfg_kw)
-        # We publish a PCM audio track when EITHER listening or talking:
-        #  - listen (audio): the robot keeps its mic MUTED until a two-way audio channel is open
-        #    (measured: subscribe alone => mic stays silent for 40+ min). Publishing a silent
-        #    track opens that channel so the robot turns its mic on. The app does the same (its
-        #    "talk"/publishMicrophoneTrack is what unlocks the robot's mic).
-        #  - talk: to push your audio to the robot's speaker.
-        # The app uses audio scenario 3 (GAME_STREAMING) for the intercom; match it.
+        # Enable the PCM publish capability when audio (listen) OR talk is on, so 'talk' can push
+        # audio to the robot's speaker on demand. NOTE: we no longer auto-publish a silent track
+        # for listen — tested (v0.17.1) that it does NOT make the robot open its mic, it only
+        # echoes into the listen feed. The robot's mic opening is still gated behind an RTM
+        # command the phone app sends that we haven't captured. The app uses audio scenario 3
+        # (GAME_STREAMING) for the intercom; match it.
         if self.audio_enabled or self.talk_enabled:
             from agora.rtc.agora_base import AudioPublishType, AudioScenarioType
             pcfg = RtcConnectionPublishConfig(
@@ -417,11 +416,16 @@ class Bridge:
             class AudioObs(IAudioFrameObserver):
                 _n = [0]
 
-                def _pcm(o, frame, src, uid):
+                def _pcm(o, frame, uid):
+                    # ONLY the per-remote-user "before mixing" frame carries the robot's mic.
+                    # The post-mix (playback/mixed) frames also contain OUR OWN published audio
+                    # (the 'talk' track) looped back — routing those would (a) echo talk into the
+                    # listen feed and (b) fire a false "audio works" from our own silence. So we
+                    # take before-mix only, and only for the robot's uid.
                     try:
                         o._n[0] += 1
                         if o._n[0] == 1:
-                            log("[audio] first PCM frame (%s) from %s" % (src, uid))
+                            log("[audio] robot mic is OPEN — audio flowing from %s" % uid)
                         pipeline.write_audio(frame.buffer)
                     except Exception:
                         pass
@@ -429,13 +433,14 @@ class Bridge:
 
                 def on_playback_audio_frame_before_mixing(o, lu_, ch, uid, frame,
                                                           vad_state=-1, vad_bytes=None):
-                    return o._pcm(frame, "before-mix", uid)
+                    return o._pcm(frame, uid)
 
+                # post-mix paths intentionally ignored (they include our own talk track)
                 def on_playback_audio_frame(o, lu_, ch, frame):
-                    return o._pcm(frame, "playback", "mix")
+                    return 0
 
                 def on_mixed_audio_frame(o, lu_, ch, frame):
-                    return o._pcm(frame, "mixed", "mix")
+                    return 0
             self._audio_obs = AudioObs()   # keep a reference (else it's GC'd, no callbacks)
             self.rtc.register_audio_frame_observer(self._audio_obs, 0, None)
             log("[audio] PCM observer registered (listen)")
@@ -449,13 +454,14 @@ class Bridge:
                 end = time.time() + 20
                 while time.time() < end:
                     if obs._n[0] > 0:
-                        log("[audio] PCM flowing — audio works (you'll hear it in the camera)")
-                        return
+                        return   # _pcm already logged "robot mic is OPEN"
                     time.sleep(0.5)
                 if obs._n[0] == 0:
-                    log("[audio] subscribed OK but the robot's mic is still silent — it starts "
-                        "muted and opens on its own (can take a few minutes). Audio will play "
-                        "automatically once it does; no action needed.")
+                    log("[audio] subscribed OK, but the robot's mic is still MUTED. It opens on "
+                        "its own, unpredictably (sometimes minutes later, sometimes not at all). "
+                        "This is a known limitation: the phone app sends an RTM command to open "
+                        "it that we haven't captured yet. Audio will play if/when the robot "
+                        "unmutes — no action needed.")
             threading.Thread(target=_audio_watchdog, daemon=True).start()
         except Exception as e:
             log("[audio] observer registration failed:", e)
@@ -475,10 +481,9 @@ class Bridge:
         return f
 
     def _start_audio_tx(self):
-        """Publish our audio track and keep it alive. This opens the two-way audio channel so the
-        robot turns its microphone ON (it stays muted otherwise). Started when the camera turns
-        on (if audio/talk enabled); stopped when it turns off. The TX loop streams silence and
-        plays any queued 'talk' clips."""
+        """Publish our audio track and keep it alive so we can speak TO the robot ('talk').
+        Started on demand when a 'talk' clip is queued; kept alive with silence between clips
+        (unpublishing/republishing per clip is slow). Stopped when the camera turns off."""
         if not (self.audio_enabled or self.talk_enabled):
             return
         sender = getattr(self.rtc, "_audio_sender", None) if self.rtc else None
@@ -490,7 +495,7 @@ class Bridge:
             self._tx_run = True
         try:
             self.rtc.publish_audio()
-            log("[audio-tx] publishing audio track — opens two-way so the robot's mic turns on")
+            log("[audio-tx] publishing our audio track (talk → robot speaker)")
         except Exception as e:
             log("[audio-tx] publish_audio failed:", e)
         threading.Thread(target=self._audio_tx_loop, args=(sender,), daemon=True).start()
@@ -584,9 +589,9 @@ class Bridge:
                     pass
             log("[video] ON — camera stream: %s" % self._rtsp_url())
             threading.Thread(target=self._video_diag, daemon=True).start()
-            # open the two-way audio channel so the robot turns its mic on (listen)
-            if self.audio_enabled:
-                self._start_audio_tx()
+            # NOTE: we do NOT auto-publish a silent audio track here. Tested: it does not make
+            # the robot open its mic (v0.17.1), and it only pollutes the listen feed. Listen is
+            # pure subscribe (mirrors the app's speaker icon); TX runs only for explicit 'talk'.
         else:
             self.video.stop_feed()
             self._stop_audio_tx()

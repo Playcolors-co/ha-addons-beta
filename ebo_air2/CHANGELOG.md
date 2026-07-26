@@ -1,6 +1,23 @@
 # Changelog — Enabot integration
 
-## 0.17.1 — audio listen: open the two-way channel so the robot's mic turns on
+## 0.17.2 — honest audio + stop the false "audio works"
+- **0.17.1's silent-track trick did NOT work.** Live test: publishing a silent audio track on
+  camera-on did **not** make the robot open its mic (no `before-mix from 200001609`, no
+  `reason=6`, no stats in a 17-min run). Worse, the post-mix observer began catching **our own
+  silence** and logged a **false** `PCM flowing — audio works`, while feeding silence to the
+  RTSP audio. Reverted.
+- **Listen is now pure subscribe** (mirrors the app's speaker icon). Only the robot's
+  **before-mixing** frame (its uid) feeds the HA audio; post-mix paths are ignored so 'talk'
+  is never echoed into the listen feed and there are no false positives.
+- Honest watchdog: if the robot's mic stays muted it now says so plainly — the mic opens on its
+  own, unpredictably, and the reliable trigger is an **RTM command the phone app sends that we
+  haven't captured yet** (next step, when the phone can go on the test network).
+- `talk` (speak to the robot) is unchanged and still available via `ebo_air2/talk`; the TX track
+  is published only while a clip plays.
+- **Net effect for now:** video, movement, sensors, snapshots, patrol, eyes and TTS all work;
+  **listen** works only when the robot opens its mic on its own (best-effort, honestly reported).
+
+## 0.17.1 — audio listen: open the two-way channel so the robot's mic turns on (REVERTED in 0.17.2)
 - **Correction to 0.16.12's "audio works":** the decode pipeline is correct, but listening was
   NOT reliable — the robot keeps its mic **muted** and only opens it when a **two-way audio
   channel** is active. Subscribing alone left it silent for 40+ minutes in testing. (The earlier
