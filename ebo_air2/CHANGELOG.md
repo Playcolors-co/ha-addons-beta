@@ -1,5 +1,19 @@
 # Changelog — Enabot integration
 
+## 0.17.1 — audio listen: open the two-way channel so the robot's mic turns on
+- **Correction to 0.16.12's "audio works":** the decode pipeline is correct, but listening was
+  NOT reliable — the robot keeps its mic **muted** and only opens it when a **two-way audio
+  channel** is active. Subscribing alone left it silent for 40+ minutes in testing. (The earlier
+  one-off success was a coincidence: the robot's mic had been opened by a prior app "talk".)
+- Fix: when the camera is on and `audio: true`, the bridge now **publishes a silent audio track**
+  (`[audio-tx] publishing audio track …`). That opens the two-way channel — exactly what the
+  app's mic does — so the robot turns its microphone on and we finally receive audio. The track
+  is published only while the camera is on and unpublished when it goes off.
+- `talk` clips now flow through the same channel (queued), so talking works whenever listening is
+  on too, not just with a separate `talk: true`.
+- Trade-off to be aware of: while you're watching with audio on, the robot is in a two-way
+  "call" (it may show a call indicator / use a bit more battery). Turn the camera off to end it.
+
 ## 0.17.0 — talk: speak TO the robot (two-way audio)
 - New **`talk: true`** option. When on, the bridge publishes an audio track to the robot (the
   server-SDK equivalent of the app's mic/"talk" button — `publishMicrophoneTrack`, audio

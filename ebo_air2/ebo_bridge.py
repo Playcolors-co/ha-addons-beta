@@ -152,6 +152,8 @@ class Bridge:
         self.audio_enabled = os.environ.get("EBO_AUDIO", "0") == "1"   # listen (optional)
         self.talk_enabled = os.environ.get("EBO_TALK", "0") == "1"     # speak TO the robot
         self._talk_lock = threading.Lock()
+        self._tx_run = False           # audio TX loop (keep-alive silence + talk) running?
+        self._tx_queue = []            # queued 'talk' sources
         self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
         self.rtsp_path = os.environ.get("EBO_RTSP_PATH", "ebo")
         self.robot_uid = None            # the robot's RTC uid, learned on_user_joined
@@ -280,10 +282,14 @@ class Bridge:
             # REQUIRED: run the audio decode/playout pipeline so the frame observers fire.
             ccfg_kw["enable_audio_recording_or_playout"] = 1
         ccfg = RTCConnConfig(**ccfg_kw)
-        if self.talk_enabled:
-            # TALK (you -> robot): publish a PCM audio track we can push audio into. The app
-            # uses audio scenario 3 (GAME_STREAMING) for the intercom; match it. The track is
-            # created now but only actually published (publish_audio) while we're playing audio.
+        # We publish a PCM audio track when EITHER listening or talking:
+        #  - listen (audio): the robot keeps its mic MUTED until a two-way audio channel is open
+        #    (measured: subscribe alone => mic stays silent for 40+ min). Publishing a silent
+        #    track opens that channel so the robot turns its mic on. The app does the same (its
+        #    "talk"/publishMicrophoneTrack is what unlocks the robot's mic).
+        #  - talk: to push your audio to the robot's speaker.
+        # The app uses audio scenario 3 (GAME_STREAMING) for the intercom; match it.
+        if self.audio_enabled or self.talk_enabled:
             from agora.rtc.agora_base import AudioPublishType, AudioScenarioType
             pcfg = RtcConnectionPublishConfig(
                 is_publish_audio=True, is_publish_video=False,
@@ -454,80 +460,113 @@ class Bridge:
         except Exception as e:
             log("[audio] observer registration failed:", e)
 
-    # ---------------- TALK (you -> robot speaker) ----------------
-    def _talk(self, source):
-        """Play an audio source through the robot's speaker. `source` is anything ffmpeg can
-        read: an http(s) URL (e.g. a Home Assistant TTS media URL) or a file path. Mirrors the
-        app's mic/'talk' button — we publish an audio track and push the decoded PCM to it."""
-        source = (source or "").strip()
-        if not source:
-            return
-        if not self.talk_enabled:
-            log("[talk] disabled — set add-on option talk:true and restart")
+    # ------------- AUDIO TX (publish to the robot: keep-alive silence + talk) -------------
+    def _mk_pcm(self, chunk):
+        from agora.rtc.agora_base import PcmAudioFrame
+        spc = AUDIO_RATE // 50               # 20 ms
+        f = PcmAudioFrame()
+        f.data = bytearray(chunk)
+        f.samples_per_channel = spc
+        f.bytes_per_sample = 2
+        f.number_of_channels = 1
+        f.sample_rate = AUDIO_RATE
+        f.timestamp = 0
+        f.present_time_ms = 0
+        return f
+
+    def _start_audio_tx(self):
+        """Publish our audio track and keep it alive. This opens the two-way audio channel so the
+        robot turns its microphone ON (it stays muted otherwise). Started when the camera turns
+        on (if audio/talk enabled); stopped when it turns off. The TX loop streams silence and
+        plays any queued 'talk' clips."""
+        if not (self.audio_enabled or self.talk_enabled):
             return
         sender = getattr(self.rtc, "_audio_sender", None) if self.rtc else None
         if not sender:
-            log("[talk] no audio publisher (not connected / talk disabled at connect)")
             return
-        threading.Thread(target=self._talk_worker, args=(source, sender),
-                         daemon=True).start()
-
-    def _talk_worker(self, source, sender):
-        from agora.rtc.agora_base import PcmAudioFrame
-        # serialize: one utterance at a time (the robot has a single speaker)
         with self._talk_lock:
-            spc = AUDIO_RATE // 50            # 20 ms frame
-            frame_bytes = spc * 2             # mono s16le
-            proc = None
-            published = False
-            try:
+            if self._tx_run:
+                return
+            self._tx_run = True
+        try:
+            self.rtc.publish_audio()
+            log("[audio-tx] publishing audio track — opens two-way so the robot's mic turns on")
+        except Exception as e:
+            log("[audio-tx] publish_audio failed:", e)
+        threading.Thread(target=self._audio_tx_loop, args=(sender,), daemon=True).start()
+
+    def _stop_audio_tx(self):
+        with self._talk_lock:
+            if not self._tx_run:
+                return
+            self._tx_run = False
+        try:
+            self.rtc.unpublish_audio()
+        except Exception:
+            pass
+
+    def _audio_tx_loop(self, sender):
+        frame_bytes = (AUDIO_RATE // 50) * 2             # 20 ms mono s16le
+        silence = bytes(frame_bytes)
+        while self._tx_run:
+            src = None
+            with self._talk_lock:
+                if self._tx_queue:
+                    src = self._tx_queue.pop(0)
+            if src:
+                log("[talk] playing:", src)
+                proc = None
                 try:
-                    self.rtc.publish_audio()
-                    published = True
+                    proc = subprocess.Popen(
+                        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", src,
+                         "-f", "s16le", "-ac", "1", "-ar", str(AUDIO_RATE), "pipe:1"],
+                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                    n = 0
+                    while self._tx_run:
+                        chunk = proc.stdout.read(frame_bytes)
+                        if not chunk:
+                            break
+                        if len(chunk) < frame_bytes:
+                            chunk = chunk + b"\x00" * (frame_bytes - len(chunk))
+                        try:
+                            sender.send_audio_pcm_data(self._mk_pcm(chunk))
+                        except Exception as e:
+                            log("[talk] send error:", e)
+                            break
+                        n += 1
+                        time.sleep(0.02)
+                    log("[talk] done — %d frames (~%.1fs)" % (n, n * 0.02))
                 except Exception as e:
-                    log("[talk] publish_audio failed:", e)
-                log("[talk] playing:", source)
-                proc = subprocess.Popen(
-                    ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", source,
-                     "-f", "s16le", "-ac", "1", "-ar", str(AUDIO_RATE), "pipe:1"],
-                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-                n = 0
-                while True:
-                    chunk = proc.stdout.read(frame_bytes)
-                    if not chunk:
-                        break
-                    if len(chunk) < frame_bytes:        # pad the last partial frame
-                        chunk = chunk + b"\x00" * (frame_bytes - len(chunk))
-                    f = PcmAudioFrame()
-                    f.data = bytearray(chunk)
-                    f.samples_per_channel = spc
-                    f.bytes_per_sample = 2
-                    f.number_of_channels = 1
-                    f.sample_rate = AUDIO_RATE
-                    f.timestamp = 0
-                    f.present_time_ms = 0
-                    try:
-                        sender.send_audio_pcm_data(f)
-                    except Exception as e:
-                        log("[talk] send error:", e)
-                        break
-                    n += 1
-                    time.sleep(0.02)               # real-time pacing (20 ms/frame)
-                log("[talk] done — %d frames (~%.1fs)" % (n, n * 0.02))
-            except Exception as e:
-                log("[talk] error:", e)
-            finally:
-                if proc:
-                    try:
-                        proc.stdout.close()
-                        proc.terminate()
-                    except Exception:
-                        pass
-                if published:
-                    try:
-                        self.rtc.unpublish_audio()
-                    except Exception:
-                        pass
+                    log("[talk] error:", e)
+                finally:
+                    if proc:
+                        try:
+                            proc.stdout.close()
+                            proc.terminate()
+                        except Exception:
+                            pass
+            else:
+                # keep-alive silence so the two-way channel (and the robot's mic) stays open
+                try:
+                    sender.send_audio_pcm_data(self._mk_pcm(silence))
+                except Exception:
+                    pass
+                time.sleep(0.02)
+
+    def _talk(self, source):
+        """Queue an audio source to play through the robot's speaker. Anything ffmpeg can read:
+        an http(s) URL (e.g. a Home Assistant TTS media URL) or a file path."""
+        source = (source or "").strip()
+        if not source:
+            return
+        if not (self.audio_enabled or self.talk_enabled):
+            log("[talk] enable 'audio' (or 'talk') in the add-on options first")
+            return
+        with self._talk_lock:
+            self._tx_queue.append(source)
+        # if the TX loop isn't running (talk enabled but camera off), start it now
+        if not self._tx_run:
+            self._start_audio_tx()
 
     def _camera_feed(self, on):
         """Turn our RTSP feed on/off. The robot streams whenever we're present in RTC; this
@@ -545,8 +584,12 @@ class Bridge:
                     pass
             log("[video] ON — camera stream: %s" % self._rtsp_url())
             threading.Thread(target=self._video_diag, daemon=True).start()
+            # open the two-way audio channel so the robot turns its mic on (listen)
+            if self.audio_enabled:
+                self._start_audio_tx()
         else:
             self.video.stop_feed()
+            self._stop_audio_tx()
             log("[video] OFF — camera stream stopped")
 
     def _video_diag(self):
@@ -863,7 +906,7 @@ class Bridge:
             "state_topic": "%s/say/state" % NODE, "icon": "mdi:bullhorn"})
         # talk (you -> robot speaker): only exposed when talk is enabled. Send an audio URL/path
         # (e.g. a Home Assistant TTS media URL) and it plays through the robot's speaker.
-        if self.talk_enabled:
+        if self.talk_enabled or self.audio_enabled:
             self._disc("text", "talk", {
                 "name": "EBO talk (audio URL)", "command_topic": "%s/talk" % NODE,
                 "icon": "mdi:microphone-message"})
