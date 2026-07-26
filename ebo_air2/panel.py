@@ -97,6 +97,10 @@ def _on_message(client, userdata, msg):
                                      ("name", "sn", "mac", "model", "rtsp")})
             return
         node = topic.split("/", 1)[0]
+        # the +/status, +/state wildcards also catch non-EBO topics (e.g. homeassistant/status) —
+        # only track real EBO nodes (from discovery, or the ebo_air2 prefix).
+        if node not in _robots and not node.startswith("ebo_air2"):
+            return
         leaf = topic[len(node) + 1:]
         with _lock:
             r = _robot(node)
@@ -286,7 +290,55 @@ class Handler(BaseHTTPRequestHandler):
         if path.endswith("/api/pair/qr"):
             png = _qr_png()
             return self._send(200 if png else 404, png or b"", "image/png")
+        if path.endswith("/api/mjpeg"):
+            q = parse_qs(urlparse(self.path).query)
+            return self._mjpeg((q.get("node") or [""])[0])
         return self._send(200, PAGE, "text/html; charset=utf-8")
+
+    def _mjpeg(self, node):
+        """Stream a live MJPEG preview (multipart) from the robot's RTSP — smooth, no flicker."""
+        with _lock:
+            r = _robots.get(node)
+            url = r and r.get("rtsp")
+        if not url:
+            return self._send(404, b"", "image/jpeg")
+        p = urlparse(url)
+        internal = "rtsp://127.0.0.1:%s%s" % (p.port or 8554, p.path)
+        proc = None
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            proc = subprocess.Popen(
+                ["ffmpeg", "-nostdin", "-rtsp_transport", "tcp", "-i", internal,
+                 "-r", "6", "-q:v", "7", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+            buf = b""
+            while True:
+                chunk = proc.stdout.read(16384)
+                if not chunk:
+                    break
+                buf += chunk
+                while True:
+                    s = buf.find(b"\xff\xd8")
+                    e = buf.find(b"\xff\xd9", s + 2) if s >= 0 else -1
+                    if s < 0 or e < 0:
+                        break
+                    jpg = buf[s:e + 2]
+                    buf = buf[e + 2:]
+                    self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n"
+                                     b"Content-Length: %d\r\n\r\n" % len(jpg))
+                    self.wfile.write(jpg)
+                    self.wfile.write(b"\r\n")
+        except Exception:
+            pass
+        finally:
+            if proc:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
 
     def do_POST(self):
         if not self._authed():
@@ -416,8 +468,8 @@ function meta(r){const st=r.state||{};
   const bat=(st.battery!=null)?st.battery+'%':'—', wifi=(st.wifi!=null?st.wifi:(st.rssi!=null?st.rssi:'—'));
   return `${r.model||'EBO'} · 🔋 ${bat} · 📶 ${wifi}`;}
 function thumb(n){return `${B}/api/snapshot?node=${encodeURIComponent(n)}&t=${Math.floor(Date.now()/4000)}`}
-function openRobot(n){SEL=n; render()}
-function goBack(){SEL=null; render()}
+function openRobot(n){SEL=n; render(true)}
+function goBack(){SEL=null; render(true)}
 
 function listView(){
   if(!ROBOTS.length) return `<div class="empty">Waiting for robots… make sure the add-on is running.</div>`;
@@ -425,19 +477,19 @@ function listView(){
     <div class="rowitem" onclick="openRobot('${r.node}')">
       <img class="thumb" src="${thumb(r.node)}" onerror="this.style.opacity=.25">
       <div>
-        <div class="ri-name"><span class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
-        <div class="ri-meta">${meta(r)}</div>
+        <div class="ri-name"><span id="dot-${r.node}" class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
+        <div id="meta-${r.node}" class="ri-meta">${meta(r)}</div>
       </div><div class="chev">›</div>
     </div>`).join('')+`</div>`;
 }
 function detailView(r){
   const st=r.state||{}, cam=(r.camera==='on');
   return `<div class="detail">
-    <img class="big" src="${thumb(r.node)}" onerror="this.style.opacity=.25">
-    <div class="dname"><span class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
-    <div class="dmeta">${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}</div>
+    <img class="big" src="${B}/api/mjpeg?node=${encodeURIComponent(r.node)}" onerror="this.style.opacity=.25">
+    <div class="dname"><span id="d-dot" class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
+    <div id="d-meta" class="dmeta">${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}</div>
     <div class="row">
-      <button class="btn ${cam?'pri':''}" onclick="cmd('${r.node}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
+      <button id="d-cam" class="btn ${cam?'pri':''}" onclick="cmd('${r.node}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
       <button class="btn" onclick="cmd('${r.node}','wake','')">☀ Wake</button>
       <button class="btn" onclick="cmd('${r.node}','laser/set','on')">Laser</button>
       <button class="btn" onclick="cmd('${r.node}','dock','')">Dock</button>
@@ -458,11 +510,30 @@ function detailView(r){
     <div class="url">${esc(r.url)}</div>
   </div>`;
 }
-function render(){
+let lastSig=null;
+function sig(){ return SEL ? 'd:'+SEL : 'l:'+ROBOTS.map(r=>r.node).join(','); }
+function render(force){
+  const s=sig();
+  if(!force && s===lastSig){ updateValues(); return; }   // same structure: update in place, don't rebuild (keeps the live preview from flickering)
+  lastSig=s;
   document.getElementById('addbtn').style.display = SEL?'none':'';
   document.getElementById('title').innerHTML = SEL? '‹ Enabot' : '🤖 Enabot';
   const r = SEL && ROBOTS.find(x=>x.node===SEL);
   document.getElementById('view').innerHTML = r? detailView(r) : listView();
+}
+function updateValues(){
+  if(SEL){
+    const r=ROBOTS.find(x=>x.node===SEL); if(!r) return;
+    const st=r.state||{}, cam=(r.camera==='on');
+    const dot=document.getElementById('d-dot'); if(dot) dot.className='dot '+(r.online?'on':'');
+    const m=document.getElementById('d-meta'); if(m) m.textContent=`${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}`;
+    const cb=document.getElementById('d-cam'); if(cb){ cb.className='btn '+(cam?'pri':''); cb.textContent=cam?'Camera ON':'Camera OFF'; cb.setAttribute('onclick',`cmd('${r.node}','camera/set','${cam?'off':'on'}')`); }
+  }else{
+    ROBOTS.forEach(r=>{
+      const dot=document.getElementById('dot-'+r.node); if(dot) dot.className='dot '+(r.online?'on':'');
+      const m=document.getElementById('meta-'+r.node); if(m) m.textContent=meta(r);
+    });
+  }
 }
 async function refresh(){
   try{ ROBOTS = await (await fetch(B+'/api/robots')).json(); render(); }catch(e){}

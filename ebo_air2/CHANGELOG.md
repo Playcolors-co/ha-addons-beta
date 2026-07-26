@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.22.2 — panel fixes: phantom 'homeassistant' robot + flickering preview
+- The panel no longer creates a fake robot from `homeassistant/status` (its +/status,+/state
+  wildcards now ignore non-EBO nodes).
+- Live preview no longer flickers: the detail view uses a smooth **MJPEG stream** (set once), and
+  the panel updates values in place instead of rebuilding the page every few seconds.
+
 ## 0.22.1 — wake from standby (like the app)
 - Turning the **camera on now wakes the robot** from standby (sends `isSleeping=false`, opcode
   101047), and re-sends the wake if no video arrives — mirroring the app, where opening the live
