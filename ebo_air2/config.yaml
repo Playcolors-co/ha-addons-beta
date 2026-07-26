@@ -1,5 +1,5 @@
 name: Enabot (beta)
-version: "0.23.0"
+version: "0.23.1"
 slug: ebo_air2
 description: Manage your Enabot EBO robots in Home Assistant — panel, camera, entities (via Enabot cloud)
 url: https://github.com/Playcolors-co/ha-addons-beta

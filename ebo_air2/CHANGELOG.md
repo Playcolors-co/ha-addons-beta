@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.23.1 — multi-model docs (cloud family) + EBO SE guidance
+- Documented supported models: the **cloud family** (Air 2 verified; Air 2 Plus/S, Mini, EBO X,
+  Max experimental — same Agora cloud, discovered automatically). **EBO SE** is LAN/TUTK and is
+  NOT this add-on — pointed to the community **ebo-se-lan-bridge** (coexists; can't bundle its
+  proprietary ARM libs). Panel 'Add robot' notes the SE case.
+
 ## 0.23.0 — native-integration reachability fix + remove robot + account + polish
 - **Fix**: the native integration couldn't reach the add-on API on the LAN IP (VLAN-firewalled).
   The add-on now announces its API on the internal Supervisor hostname → HA reaches it regardless

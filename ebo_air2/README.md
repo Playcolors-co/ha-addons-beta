@@ -27,6 +27,16 @@ It gives you three things:
 > The "Network" ports (camera streams + the integration's data API) are internal plumbing —
 > you don't need to change them.
 
+## Supported models
+- **Cloud family (this add-on):** EBO **Air 2** (verified), Air 2 Plus / Air 2S / Mini, **EBO X**,
+  **Max** — all the models that use the EBO HOME app + Enabot Agora cloud. Non-Air 2 models are
+  **experimental** (same cloud; some model-specific commands may differ). All robots on your
+  account are discovered automatically.
+- **EBO SE (LAN, TUTK/Kalay):** a different, local-only stack — **not** this add-on. Use the
+  community bridge **[ebo-se-lan-bridge](https://github.com/lilium360/ebo-se-lan-bridge)** (on a
+  Raspberry Pi); it gives Home Assistant an RTSP camera + MQTT entities + its own panel. It
+  coexists with this add-on. (We can't bundle it — it needs proprietary ARM libraries.)
+
 > ⚠️ **Independent, unofficial project.** Not affiliated with Enabot or ThroughTek/Agora. It
 > interoperates with the Enabot cloud through reverse engineering, using **your own** account and
 > devices. Use at your own risk; it may break if Enabot changes their API.

@@ -1,13 +1,34 @@
-# EBO Air 2 — documentation
+# Enabot — documentation
 
-> ℹ️ **Tested devices.** So far this add-on has been tested **only on the Enabot EBO Air 2**.
-> It may work with other EBO models that talk to the same Enabot cloud (EBO SE 2, Max, EBO X…),
-> but that is **unverified** — if you try it on another model, feedback and issues are very
-> welcome.
->
+## Supported models
+
+Enabot robots split into two very different families:
+
+**Cloud family (this add-on)** — the models that use the **EBO HOME** app and the Enabot **Agora
+cloud** (RTC/RTM). This add-on manages all of these from your account:
+
+| Model | Status |
+|---|---|
+| **EBO Air 2** | ✅ verified |
+| EBO Air 2 Plus / Air 2S / Mini | 🧪 experimental — same cloud/opcodes as the Air 2, core features (video, telemetry, move, sleep) should work; some model-specific commands may differ |
+| EBO X / EBO Max | 🧪 experimental — same Agora cloud, but more feature differences; expect some commands to need per-model tuning |
+
+The add-on discovers **every robot on your account** and runs a bridge for each, so multiple/mixed
+cloud models work together. Non-verified models are best-effort — feedback and issues are welcome.
+
+**EBO SE (LAN, TUTK/Kalay)** — the SE is a different beast: it is controlled **locally over LAN
+via TUTK/Kalay**, not the Agora cloud. It is **not** supported by this add-on, and it can't be:
+the TUTK stack needs **proprietary ARM libraries** (not redistributable) plus an Android runtime,
+whereas this add-on is amd64/cloud.
+
+> 👉 **For an EBO SE**, use the community bridge **[ebo-se-lan-bridge](https://github.com/lilium360/ebo-se-lan-bridge)**
+> (runs on a Raspberry Pi). It already exposes an RTSP stream and **Home Assistant MQTT Discovery
+> + its own control panel** — so an SE gets full HA integration on its own. It coexists with this
+> add-on (SE over LAN, cloud models here); nothing to configure between them.
+
 > ⚠️ **Independent, unofficial project.** Not affiliated with Enabot or ThroughTek/Agora. It
 > interoperates with the Enabot cloud through reverse engineering, using **your own**
-> credentials and device. Use at your own risk; it may break if Enabot changes their API.
+> credentials and devices. Use at your own risk; it may break if Enabot changes their API.
 
 ## Configuration
 

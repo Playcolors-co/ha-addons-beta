@@ -502,7 +502,9 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
       <button class="btn" onclick="document.getElementById('add').close()">Cancel</button>
       <button class="btn pri" onclick="pairStart()">Generate QR</button>
     </div>
-    <div class="note">The robot joins this Wi-Fi by scanning a QR — no phone needed.</div>
+    <div class="note">The robot joins this Wi-Fi by scanning a QR — no phone needed.<br>
+      This is for cloud models (Air 2, X, Max…). An <b>EBO SE</b> uses local LAN — use the
+      <b>ebo-se-lan-bridge</b> project instead.</div>
   </div>
   <div id="addqr" style="display:none;text-align:center">
     <p>Turn the robot on, then <b>hold its camera up to this QR code</b>:</p>
