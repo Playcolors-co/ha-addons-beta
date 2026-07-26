@@ -36,8 +36,12 @@ ALLOWED_CMDS = {
     "speed/set", "sports_record/set", "call_rec/set", "eyes/set",
 }
 
-# Operational add-on settings the panel manages (stored in /data/panel.json, read by run.sh).
+# Add-on settings the panel manages (stored in /data/panel.json, read by run.sh). Everything
+# except the account login (email/password) lives here now, not in the Configuration tab.
 EDITABLE_OPTS = {
+    "region": {"type": "text", "default": "GB"},
+    "host": {"type": "text", "default": "ebox-eu.enabotserverintl.com"},
+    "robot_id": {"type": "int", "default": 0},
     "video": {"type": "bool", "default": True},
     "audio": {"type": "bool", "default": True},
     "talk": {"type": "bool", "default": False},
@@ -275,7 +279,7 @@ dialog{border:0;border-radius:14px;padding:0;max-width:440px;width:92%;backgroun
 dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;margin-top:10px}
 </style></head><body>
 <header>
-  <span id="title" onclick="back()" style="cursor:pointer">🤖 Enabot</span>
+  <span id="title" onclick="goBack()" style="cursor:pointer">🤖 Enabot</span>
   <span><button class="btn" id="addbtn" onclick="alert('Coming soon: pair a new robot')">+ Add robot</button>
         <button class="btn" onclick="openOpts()">⚙ Settings</button></span>
 </header>
@@ -303,13 +307,13 @@ function meta(r){const st=r.state||{};
   const bat=(st.battery!=null)?st.battery+'%':'—', wifi=(st.wifi!=null?st.wifi:(st.rssi!=null?st.rssi:'—'));
   return `${r.model||'EBO'} · 🔋 ${bat} · 📶 ${wifi}`;}
 function thumb(n){return `${B}/api/snapshot?node=${encodeURIComponent(n)}&t=${Math.floor(Date.now()/4000)}`}
-function open(n){SEL=n; render()}
-function back(){SEL=null; render()}
+function openRobot(n){SEL=n; render()}
+function goBack(){SEL=null; render()}
 
 function listView(){
   if(!ROBOTS.length) return `<div class="empty">Waiting for robots… make sure the add-on is running.</div>`;
   return `<div class="list">`+ROBOTS.map(r=>`
-    <div class="rowitem" onclick="open('${r.node}')">
+    <div class="rowitem" onclick="openRobot('${r.node}')">
       <img class="thumb" src="${thumb(r.node)}" onerror="this.style.opacity=.25">
       <div>
         <div class="ri-name"><span class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
@@ -360,6 +364,7 @@ async function openOpts(){
     h+=`<label>${k}</label>`;
     if(s.type==='bool') h+=`<select id="o-${k}"><option ${v[k]?'selected':''}>true</option><option ${!v[k]?'selected':''}>false</option></select>`;
     else if(s.type==='select') h+=`<select id="o-${k}">${s.choices.map(c=>`<option ${c==v[k]?'selected':''}>${c}</option>`).join('')}</select>`;
+    else if(s.type==='text') h+=`<input id="o-${k}" type="text" value="${v[k]??''}">`;
     else h+=`<input id="o-${k}" type="number" value="${v[k]??''}">`;
   }
   document.getElementById('optform').innerHTML=h;

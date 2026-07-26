@@ -5,14 +5,12 @@ set -e
 
 OPTS=/data/options.json
 
-# --- bootstrap / connection (stays in the add-on Configuration tab) ---
+# --- account login: the ONLY setting in the add-on Configuration tab ---
 export EBO_EMAIL="$(jq -r '.email // empty' "$OPTS")"
 export EBO_PASSWORD="$(jq -r '.password // empty' "$OPTS")"
-export EBO_REGION="$(jq -r '.region // "GB"' "$OPTS")"
-export EBO_HOST="$(jq -r '.host // "ebox-eu.enabotserverintl.com"' "$OPTS")"
 
-# --- operational settings live in a PANEL-managed store (/data/panel.json), NOT in add-on
-# options, so they don't clutter the Configuration tab. Fallback (first boot / migration):
+# --- EVERYTHING else (region/host included) lives in a PANEL-managed store (/data/panel.json),
+# NOT in add-on options, so the Configuration tab stays clean. Fallback (first boot / migration):
 # panel.json -> options.json -> built-in default. ---
 PANEL_CFG=/data/panel.json
 pget() {  # pget <key> <default>
@@ -24,6 +22,8 @@ pget() {  # pget <key> <default>
 }
 pbool() { [ "$(pget "$1" "$2")" = "true" ] && echo 1 || echo 0; }
 
+export EBO_REGION="$(pget region GB)"
+export EBO_HOST="$(pget host ebox-eu.enabotserverintl.com)"
 export EBO_VIDEO="$(pbool video true)"
 export EBO_AUDIO="$(pbool audio true)"
 export EBO_TALK="$(pbool talk false)"
@@ -33,18 +33,19 @@ export EBO_VIDEO_MAX_HEIGHT="$(pget video_max_height 720)"
 export EBO_VIDEO_FPS="$(pget video_fps 20)"
 export EBO_VIDEO_BITRATE="$(pget video_bitrate 2500)"
 export EBO_VIDEO_PRESET="$(pget video_preset ultrafast)"
+ROBOT_ID="$(pget robot_id 0)"
+[ "$ROBOT_ID" != "0" ] && export EBO_ROBOT_ID="$ROBOT_ID"
 
 # seed the panel store once from the resolved (migrated) values, so the panel has a file to edit
 if [ ! -f "$PANEL_CFG" ]; then
-  printf '{"video":%s,"audio":%s,"talk":%s,"audio_codec":%s,"log_level":"%s","video_max_height":%s,"video_fps":%s,"video_bitrate":%s,"video_preset":"%s"}\n' \
+  printf '{"region":"%s","host":"%s","robot_id":%s,"video":%s,"audio":%s,"talk":%s,"audio_codec":%s,"log_level":"%s","video_max_height":%s,"video_fps":%s,"video_bitrate":%s,"video_preset":"%s"}\n' \
+    "$EBO_REGION" "$EBO_HOST" "$ROBOT_ID" \
     "$([ "$EBO_VIDEO" = 1 ] && echo true || echo false)" \
     "$([ "$EBO_AUDIO" = 1 ] && echo true || echo false)" \
     "$([ "$EBO_TALK" = 1 ] && echo true || echo false)" \
     "$EBO_AUDIO_PT" "$EBO_LOG_LEVEL" "$EBO_VIDEO_MAX_HEIGHT" "$EBO_VIDEO_FPS" "$EBO_VIDEO_BITRATE" \
     "$EBO_VIDEO_PRESET" > "$PANEL_CFG" 2>/dev/null || true
 fi
-ROBOT_ID="$(jq -r '.robot_id // 0' "$OPTS")"
-[ "$ROBOT_ID" != "0" ] && export EBO_ROBOT_ID="$ROBOT_ID"
 
 if [ -z "$EBO_EMAIL" ] || [ -z "$EBO_PASSWORD" ]; then
   echo "[add-on] ERROR: set email and password in the add-on configuration."
@@ -68,7 +69,7 @@ export EBO_MQTT_HOST EBO_MQTT_PORT
 
 # Home Assistant host IP for the RTSP camera URL: use the manual option if set, else ask
 # the Supervisor for the primary interface address.
-EBO_HOST_IP="$(jq -r '.host_ip // empty' "$OPTS")"
+EBO_HOST_IP="$(pget host_ip "")"
 if [ -z "$EBO_HOST_IP" ] && [ -n "$SUPERVISOR_TOKEN" ]; then
   NET_JSON="$(curl -sf -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/network/info 2>/dev/null || true)"
   EBO_HOST_IP="$(echo "$NET_JSON" | jq -r 'first((.data.interfaces[]? | select(.primary==true) | .ipv4.address[0]) // empty) // (.data.interfaces[]? | select(.enabled==true) | .ipv4.address[0])' 2>/dev/null | sed 's#/.*##' | head -1)"

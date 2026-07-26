@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.20.1 — Enabot branding + fix white detail page + config tab = login only
+- Add-on renamed **Enabot**. Fixed the blank page on selecting a robot (a JS function was named
+  `open`, shadowing the browser's `window.open`). Everything English.
+- Configuration tab now holds ONLY **email + password**. Region, host, robot_id and all operational
+  settings live in the panel (⚙ Settings) / `/data/panel.json`.
+
 ## 0.20.0 — panel redesign (list → detail) + operational settings out of the config tab
 - Panel renamed **Enabot**, now a **list** of robots (thumbnail, name, battery, wifi) — click a
   row to open its **detail page** (big preview + controls + robot settings).
