@@ -71,6 +71,7 @@ EDITABLE_OPTS = {
 _robots = {}
 _lock = threading.Lock()
 _snap_cache = {}
+_snap_lock = {}
 _client = None
 
 
@@ -238,20 +239,29 @@ def _snapshot(node):
         return None
     now = time.time()
     ts, cached = _snap_cache.get(node, (0, None))
-    if cached and now - ts < 2.0:
+    if cached and now - ts < 0.8:
         return cached
-    p = urlparse(url)
-    internal = "rtsp://127.0.0.1:%s%s" % (p.port or 8554, p.path)
+    # one grab per node at a time — concurrent requests get the last frame (no ffmpeg pile-up)
+    lock = _snap_lock.setdefault(node, threading.Lock())
+    if not lock.acquire(blocking=False):
+        return cached
     try:
+        ts, cached = _snap_cache.get(node, (0, None))
+        if cached and time.time() - ts < 0.8:
+            return cached
+        p = urlparse(url)
+        internal = "rtsp://127.0.0.1:%s%s" % (p.port or 8554, p.path)
         out = subprocess.run(
             ["ffmpeg", "-nostdin", "-rtsp_transport", "tcp", "-i", internal,
              "-frames:v", "1", "-q:v", "6", "-f", "mjpeg", "pipe:1"],
             capture_output=True, timeout=8).stdout
         if out:
-            _snap_cache[node] = (now, out)
+            _snap_cache[node] = (time.time(), out)
             return out
     except Exception:
         pass
+    finally:
+        lock.release()
     return cached
 
 
@@ -475,7 +485,7 @@ function listView(){
   if(!ROBOTS.length) return `<div class="empty">Waiting for robots… make sure the add-on is running.</div>`;
   return `<div class="list">`+ROBOTS.map(r=>`
     <div class="rowitem" onclick="openRobot('${r.node}')">
-      <img class="thumb" src="${thumb(r.node)}" onerror="this.style.opacity=.25">
+      <img class="thumb prev" data-node="${r.node}" src="${B}/api/snapshot?node=${encodeURIComponent(r.node)}&t=${Date.now()}" onerror="this.style.opacity=.25">
       <div>
         <div class="ri-name"><span id="dot-${r.node}" class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
         <div id="meta-${r.node}" class="ri-meta">${meta(r)}</div>
@@ -485,12 +495,13 @@ function listView(){
 function detailView(r){
   const st=r.state||{}, cam=(r.camera==='on');
   return `<div class="detail">
-    <img class="big" src="${B}/api/mjpeg?node=${encodeURIComponent(r.node)}" onerror="this.style.opacity=.25">
+    <img class="big prev" data-node="${r.node}" src="${B}/api/snapshot?node=${encodeURIComponent(r.node)}&t=${Date.now()}" onerror="this.style.opacity=.25">
     <div class="dname"><span id="d-dot" class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
     <div id="d-meta" class="dmeta">${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}</div>
     <div class="row">
       <button id="d-cam" class="btn ${cam?'pri':''}" onclick="cmd('${r.node}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
       <button class="btn" onclick="cmd('${r.node}','wake','')">☀ Wake</button>
+      <button class="btn" onclick="cmd('${r.node}','sleep/set','on')">🌙 Standby</button>
       <button class="btn" onclick="cmd('${r.node}','laser/set','on')">Laser</button>
       <button class="btn" onclick="cmd('${r.node}','dock','')">Dock</button>
     </div>
@@ -593,7 +604,17 @@ async function pairPoll(){
   }catch(e){}
 }
 function stopPair(){ if(pairTimer){clearInterval(pairTimer);pairTimer=null;} document.getElementById('add').close(); }
+// smooth preview: preload the next snapshot off-screen, then swap it in on load (no blank/flicker)
+function previewLoop(){
+  document.querySelectorAll('img.prev').forEach(el=>{
+    const n=el.getAttribute('data-node'); if(!n) return;
+    const im=new Image();
+    im.onload=()=>{ el.src=im.src; el.style.opacity=1; };
+    im.src=B+'/api/snapshot?node='+encodeURIComponent(n)+'&t='+Date.now();
+  });
+}
 refresh(); setInterval(refresh, 4000);
+previewLoop(); setInterval(previewLoop, 900);
 </script></body></html>"""
 
 

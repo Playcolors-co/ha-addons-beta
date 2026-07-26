@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.22.3 — smooth previews (both views) + Standby
+- Reverted MJPEG (didn't stream through HA Ingress → detail preview went blank). Previews now use
+  **double-buffered snapshots** (preload off-screen, swap on load) on BOTH the list and the detail
+  view → smooth, no flicker. Per-node grab lock avoids ffmpeg pile-up.
+- New **Standby** action (panel + native integration) to put the robot back to sleep.
+
 ## 0.22.2 — panel fixes: phantom 'homeassistant' robot + flickering preview
 - The panel no longer creates a fake robot from `homeassistant/status` (its +/status,+/state
   wildcards now ignore non-EBO nodes).
