@@ -1,5 +1,10 @@
 # Changelog — Enabot integration
 
+## 0.22.1 — wake from standby (like the app)
+- Turning the **camera on now wakes the robot** from standby (sends `isSleeping=false`, opcode
+  101047), and re-sends the wake if no video arrives — mirroring the app, where opening the live
+  view wakes it. New **EBO wake** button (MQTT) and Wake in the panel/native integration.
+
 ## 0.22.0 — groundwork for the native integration (expose_mqtt toggle + data API)
 - New **`expose_mqtt`** setting (default on): off = don't publish HA entities over MQTT (the
   native integration will own them). Panel state/commands still use MQTT.

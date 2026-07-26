@@ -651,6 +651,8 @@ class Bridge:
         if not self.video:
             return
         if on:
+            # Wake the robot first — like the app, opening the camera wakes it from standby.
+            self._wake()
             self.video.start_feed()
             if self.robot_uid:
                 try:
@@ -674,9 +676,10 @@ class Bridge:
             log("[video] OFF — camera stream stopped")
 
     def _video_diag(self):
-        """Nudge keyframes and warn if no decoded frames arrive."""
+        """Nudge keyframes, re-wake, and warn if no decoded frames arrive."""
         started = time.time()
         warned = False
+        last_wake = time.time()
         while not self.stop.is_set() and self.video and self.video.feeding:
             if self.video.frames == 0:
                 if self.robot_uid:
@@ -684,6 +687,10 @@ class Bridge:
                         self.rtc.send_intra_request(self.robot_uid)
                     except Exception:
                         pass
+                # the robot may still be waking from standby — re-send wake every ~8s
+                if time.time() - last_wake > 8:
+                    last_wake = time.time()
+                    self._wake()
                 if not warned and time.time() - started > 20:
                     warned = True
                     log("[video] ⚠ still 0 decoded frames after 20s — the robot may not be "
@@ -691,6 +698,15 @@ class Bridge:
                 self.stop.wait(1)
             else:
                 self.stop.wait(8)
+
+    def _wake(self):
+        """Wake the robot from standby (sends isSleeping=false, opcode 101047). Not movement —
+        mirrors the app, where opening the live camera wakes the robot."""
+        try:
+            self.send(OP_SLEEP, {"isSleeping": False})
+            log("[wake] sent wake (isSleeping=false)")
+        except Exception as e:
+            log("[wake] failed:", e)
 
     def set_camera(self, on):
         self.video_on = on
@@ -1023,6 +1039,9 @@ class Bridge:
             "name": "EBO sleep", "command_topic": "%s/sleep/set" % NODE,
             "payload_on": "on", "payload_off": "off", "optimistic": True,
             "icon": "mdi:sleep"})
+        self._disc("button", "wake", {
+            "name": "EBO wake", "command_topic": "%s/wake" % NODE,
+            "icon": "mdi:weather-sunny"})
         # text-to-speech: type text, the robot says it (great for automations/AI)
         self._disc("text", "say", {
             "name": "EBO say", "command_topic": "%s/say" % NODE,
@@ -1187,6 +1206,7 @@ class Bridge:
         c.subscribe("%s/move/vector" % NODE)
         c.subscribe("%s/joystick" % NODE)      # {"x":-1..1,"y":-1..1} from a joystick card
         c.subscribe("%s/sleep/set" % NODE)
+        c.subscribe("%s/wake" % NODE)
         c.subscribe("%s/say" % NODE)
         c.subscribe("%s/talk" % NODE)          # play audio (URL/path) through the robot speaker
         c.subscribe("%s/audio_tx/set" % NODE)  # DIAG A/B: off | silence | tone
@@ -1225,6 +1245,8 @@ class Bridge:
                               v.get("ry", 0), v.get("hold", 0.6))
             elif topic.endswith("/sleep/set"):
                 self.send(OP_SLEEP, {"isSleeping": payload.lower() in ("on", "true", "1")})
+            elif topic.endswith("/wake"):
+                self._wake()
             elif topic.endswith("/say"):
                 if payload:
                     self.send(OP_SAY, {"userId": self.account, "text": payload})

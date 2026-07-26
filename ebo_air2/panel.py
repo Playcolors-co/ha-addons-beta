@@ -42,7 +42,8 @@ PANEL_CFG = "/data/panel.json"
 
 # Command suffixes the panel may publish (allow-list). Movement is excluded on purpose.
 ALLOWED_CMDS = {
-    "camera/set", "laser/set", "dock", "sleep/set", "connected/set", "patrol/start", "say", "talk",
+    "camera/set", "laser/set", "dock", "sleep/set", "wake", "connected/set", "patrol/start",
+    "say", "talk",
     "video_quality/set", "image_style/set", "volume/set", "talkback_volume/set",
     "speed/set", "sports_record/set", "call_rec/set", "eyes/set",
 }
@@ -437,6 +438,7 @@ function detailView(r){
     <div class="dmeta">${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}</div>
     <div class="row">
       <button class="btn ${cam?'pri':''}" onclick="cmd('${r.node}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
+      <button class="btn" onclick="cmd('${r.node}','wake','')">☀ Wake</button>
       <button class="btn" onclick="cmd('${r.node}','laser/set','on')">Laser</button>
       <button class="btn" onclick="cmd('${r.node}','dock','')">Dock</button>
     </div>
