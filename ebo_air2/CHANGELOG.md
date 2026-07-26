@@ -1,5 +1,10 @@
 # Changelog — Enabot integration
 
+## 0.19.2 — tidy config (panel-first)
+- Config tab is now just the essentials (account + connection); the panel is the place for
+  operational settings. Removed the diagnostic `audio_tx_test` and the unusable `video_encoded`
+  (H.265 passthrough segfaults) from the options schema.
+
 ## 0.19.1 — panel settings (robot + add-on options)
 - The Ingress panel now edits settings: per-robot **video quality, image style, eyes, volume,
   speed, motion recording** (over MQTT), and **add-on options** (log level, video max height /
