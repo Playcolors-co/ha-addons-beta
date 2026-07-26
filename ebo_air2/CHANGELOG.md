@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.21.0 — pair a NEW robot from the panel (QR, no phone)
+- The **+ Add robot** button now runs the real pairing: enter the Wi-Fi, the panel mints a cloud
+  **bind key**, shows a **QR** the robot's camera scans to join Wi-Fi + bind to your account, and
+  polls until it's bound — then restarts to bring it online. Reproduces the app's flow server-side
+  (`bind_key`/`bind_status`, Base64 QR `s/p/m/k/r`). Adds the `segno` QR generator.
+
 ## 0.20.1 — Enabot branding + fix white detail page + config tab = login only
 - Add-on renamed **Enabot**. Fixed the blank page on selecting a robot (a JS function was named
   `open`, shadowing the browser's `window.open`). Everything English.

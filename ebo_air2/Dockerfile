@@ -11,7 +11,7 @@ RUN apt-get update \
 # The Agora SDK version is pinned so control is reproducible; bump it to test the video path.
 ARG AGORA_SDK_VERSION=2.4.9
 RUN pip install --no-cache-dir --retries 5 --timeout 60 \
-        "agora-python-server-sdk==${AGORA_SDK_VERSION}" paho-mqtt cryptography
+        "agora-python-server-sdk==${AGORA_SDK_VERSION}" paho-mqtt cryptography segno
 
 # --- video-only extras (optional): a failure here must NOT break the add-on update ---
 # ffmpeg (republish the stream). If it can't be installed, video just won't work.

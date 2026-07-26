@@ -8,6 +8,8 @@ control/settings commands over MQTT, and edits operational add-on settings store
 
 No extra dependencies: stdlib http.server + paho-mqtt + ffmpeg.
 """
+import base64
+import io
 import json
 import os
 import subprocess
@@ -18,8 +20,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import paho.mqtt.client as mqtt
+import segno
 
+import ebo_cloud
 from ebo_log import log
+
+EMAIL = os.environ.get("EBO_EMAIL", "")
+PASSWORD = os.environ.get("EBO_PASSWORD", "")
+REGION = os.environ.get("EBO_REGION", "GB")
+HOST = os.environ.get("EBO_HOST", "ebox-eu.enabotserverintl.com")
 
 PORT = int(os.environ.get("EBO_PANEL_PORT", "8099"))
 MQTT_HOST = os.environ.get("EBO_MQTT_HOST", "core-mosquitto")
@@ -163,6 +172,55 @@ def _restart_self():
         log("[panel] self-restart failed:", e)
 
 
+# --------------------------- pair a NEW robot (QR provisioning) ---------------------------
+_pair = {}          # {key, qr, account, client}
+
+
+def _b64(s):
+    return base64.b64encode((s or "").encode()).decode()
+
+
+def _pair_start(ssid, password):
+    """Log in, mint a bind key, and build the WiFi QR string the robot's camera will scan."""
+    c = ebo_cloud.EboCloud(host=HOST)
+    c.login(EMAIL, PASSWORD, region=REGION)
+    acc = c.account_id
+    if not acc:
+        raise RuntimeError("could not read the account id from login")
+    resp = c.bind_key(acc)
+    key = (resp.get("data") or {}).get("bind_key") or resp.get("bind_key")
+    if not key:
+        raise RuntimeError("no bind_key in response: %s" % resp)
+    qr = "s=%s&p=%s&m=2&k=%s&r=%s" % (_b64(ssid), _b64(password), _b64(key),
+                                      _b64(ebo_cloud.region_code(HOST)))
+    _pair.clear()
+    _pair.update({"key": key, "qr": qr, "account": acc, "client": c})
+    log("[pair] bind key obtained — showing QR (region %s)" % ebo_cloud.region_code(HOST))
+    return {"ok": True}
+
+
+def _pair_status():
+    if not _pair:
+        return {"status": "idle"}
+    try:
+        resp = _pair["client"].bind_status(_pair["account"], _pair["key"])
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+    data = resp.get("data") or {}
+    st = data.get("bind_status")
+    if st == 200:
+        log("[pair] robot bound — robot_id=%s" % data.get("robot_id"))
+    return {"status": st, "robot_id": data.get("robot_id")}
+
+
+def _qr_png():
+    if not _pair:
+        return None
+    buf = io.BytesIO()
+    segno.make(_pair["qr"], error="m").save(buf, kind="png", scale=8, border=2)
+    return buf.getvalue()
+
+
 # --------------------------- live preview: one JPEG from RTSP ---------------------------
 def _snapshot(node):
     with _lock:
@@ -214,6 +272,9 @@ class Handler(BaseHTTPRequestHandler):
             q = parse_qs(urlparse(self.path).query)
             jpg = _snapshot((q.get("node") or [""])[0])
             return self._send(200 if jpg else 404, jpg or b"", "image/jpeg")
+        if path.endswith("/api/pair/qr"):
+            png = _qr_png()
+            return self._send(200 if png else 404, png or b"", "image/png")
         return self._send(200, PAGE, "text/html; charset=utf-8")
 
     def do_POST(self):
@@ -237,6 +298,18 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 log("[panel] save options failed:", e)
                 return self._send(500, json.dumps({"error": str(e)}))
+        if path.endswith("/api/pair/start"):
+            try:
+                return self._send(200, json.dumps(
+                    _pair_start(str(body.get("ssid", "")), str(body.get("password", "")))))
+            except Exception as e:
+                log("[pair] start failed:", e)
+                return self._send(500, json.dumps({"error": str(e)}))
+        if path.endswith("/api/pair/status"):
+            return self._send(200, json.dumps(_pair_status()))
+        if path.endswith("/api/restart"):
+            threading.Thread(target=_restart_self, daemon=True).start()
+            return self._send(200, json.dumps({"ok": True}))
         return self._send(404, "{}")
 
 
@@ -280,7 +353,7 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 </style></head><body>
 <header>
   <span id="title" onclick="goBack()" style="cursor:pointer">🤖 Enabot</span>
-  <span><button class="btn" id="addbtn" onclick="alert('Coming soon: pair a new robot')">+ Add robot</button>
+  <span><button class="btn" id="addbtn" onclick="openAdd()">+ Add robot</button>
         <button class="btn" onclick="openOpts()">⚙ Settings</button></span>
 </header>
 <div id="view"></div>
@@ -291,6 +364,29 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
     <button class="btn" onclick="document.getElementById('opts').close()">Cancel</button>
     <button class="btn pri" onclick="saveOpts()">Save &amp; restart</button></div>
   <div class="note">Saving restarts the add-on (brief interruption).</div>
+</div></dialog>
+
+<dialog id="add"><div class="in">
+  <h3>Add a robot</h3>
+  <div id="addform">
+    <label>Wi-Fi network (2.4 GHz) the robot should join</label>
+    <input id="a-ssid" type="text" placeholder="SSID">
+    <label>Wi-Fi password</label>
+    <input id="a-pass" type="text" placeholder="password">
+    <div class="row" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn" onclick="document.getElementById('add').close()">Cancel</button>
+      <button class="btn pri" onclick="pairStart()">Generate QR</button>
+    </div>
+    <div class="note">The robot joins this Wi-Fi by scanning a QR — no phone needed.</div>
+  </div>
+  <div id="addqr" style="display:none;text-align:center">
+    <p>Turn the robot on, then <b>hold its camera up to this QR code</b>:</p>
+    <img id="qrimg" style="width:260px;height:260px;image-rendering:pixelated;background:#fff;border-radius:10px">
+    <p id="pairmsg" class="note">Waiting for the robot to scan…</p>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" onclick="stopPair()">Close</button>
+    </div>
+  </div>
 </div></dialog>
 
 <script>
@@ -377,6 +473,41 @@ async function saveOpts(){
   await fetch(B+'/api/options',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({options:out})});
   document.getElementById('opts').close(); alert('Saved. The add-on is restarting…');
 }
+let pairTimer=null;
+function openAdd(){
+  const ssid=(ROBOTS[0]&&ROBOTS[0].state&&ROBOTS[0].state.ssid)||'';
+  document.getElementById('a-ssid').value=ssid;
+  document.getElementById('a-pass').value='';
+  document.getElementById('addform').style.display='';
+  document.getElementById('addqr').style.display='none';
+  document.getElementById('add').showModal();
+}
+async function pairStart(){
+  const ssid=document.getElementById('a-ssid').value.trim();
+  const password=document.getElementById('a-pass').value;
+  if(!ssid){alert('Enter the Wi-Fi name');return;}
+  const r=await fetch(B+'/api/pair/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid,password})});
+  const j=await r.json();
+  if(!r.ok||j.error){alert('Could not start pairing: '+(j.error||r.status));return;}
+  document.getElementById('addform').style.display='none';
+  document.getElementById('addqr').style.display='';
+  document.getElementById('qrimg').src=B+'/api/pair/qr?t='+Date.now();
+  document.getElementById('pairmsg').textContent='Waiting for the robot to scan…';
+  pairTimer=setInterval(pairPoll,3000);
+}
+async function pairPoll(){
+  try{
+    const j=await (await fetch(B+'/api/pair/status',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    if(j.status===200){
+      clearInterval(pairTimer); pairTimer=null;
+      document.getElementById('pairmsg').innerHTML='✅ Robot paired! Restarting to bring it online…';
+      await fetch(B+'/api/restart',{method:'POST'}); setTimeout(stopPair,2500);
+    }else{
+      document.getElementById('pairmsg').textContent='Waiting for the robot to scan… (status '+(j.status??'…')+')';
+    }
+  }catch(e){}
+}
+function stopPair(){ if(pairTimer){clearInterval(pairTimer);pairTimer=null;} document.getElementById('add').close(); }
 refresh(); setInterval(refresh, 4000);
 </script></body></html>"""
 
