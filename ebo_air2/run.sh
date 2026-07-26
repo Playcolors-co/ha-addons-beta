@@ -99,6 +99,7 @@ stopping=0
 term() {
   stopping=1
   echo "[add-on] stopping…"
+  pkill -TERM -f '/app/panel.py' 2>/dev/null || true
   pkill -TERM -f '/app/ebo_bridge.py' 2>/dev/null || true
   for _ in $(seq 1 16); do
     pgrep -f '/app/ebo_bridge.py' >/dev/null 2>&1 || break
@@ -140,6 +141,11 @@ run_robot() {
     sleep 15 & wait $!
   done
 }
+
+# Ingress web panel (one for the whole add-on): aggregates every robot's state over MQTT.
+export EBO_PANEL_PORT="${EBO_PANEL_PORT:-8099}"
+python /app/panel.py &
+PANEL_PID=$!
 
 for i in "${!RIDS[@]}"; do
   run_robot "${RIDS[$i]}" "$i" "${RNAMES[$i]}" &

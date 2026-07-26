@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.19.0 — Ingress web panel (Zigbee2MQTT-style sidebar UI)
+- New **sidebar panel** (Ingress): one page to see and manage every robot the add-on bridges —
+  online status, battery, wifi, a live JPEG preview, and quick controls (camera on/off, laser,
+  dock). Aggregated over MQTT; no extra dependency (stdlib http.server + paho + ffmpeg).
+- `panel.py` runs once for the whole add-on; movement is intentionally NOT exposed here.
+
 ## 0.18.2 — English-only (docs + remaining strings)
 - Translated all docs to English and renamed GUIDA-HA→GUIDE-HA, COMANDI-APK→COMMANDS-APK;
   fixed the last two Italian strings in code (a log line + a comment). Everything is English now.
