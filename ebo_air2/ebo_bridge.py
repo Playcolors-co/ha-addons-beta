@@ -157,6 +157,7 @@ class Bridge:
         self._tx_mode = "silence"      # DIAG: idle TX content — "silence" | "tone"
         self._tx_start_t = 0.0         # DIAG: when we started publishing (to time mic-open)
         self._tone_buf = None          # DIAG: cached tone PCM (built lazily)
+        self.tx_test = os.environ.get("EBO_AUDIO_TX_TEST", "off")  # off|silence|tone|auto
         self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
         self.rtsp_path = os.environ.get("EBO_RTSP_PATH", "ebo")
         self.robot_uid = None            # the robot's RTC uid, learned on_user_joined
@@ -520,6 +521,31 @@ class Bridge:
         except Exception:
             pass
 
+    def _tx_test_sequence(self):
+        """DIAG (audio_tx_test=auto): cycle baseline→tone→silence, ~75 s each, and let the
+        '*** ROBOT MIC OPENED ***' log tell us which condition (if any) makes the robot publish
+        its mic. Runs once on camera-on."""
+        def phase(name, mode, secs):
+            if getattr(self, "_audio_obs", None) is not None:
+                self._audio_obs._n[0] = 0
+            self._stop_audio_tx()
+            if mode:
+                self._tx_mode = mode
+                self._start_audio_tx()
+            log("[tx-test] === PHASE '%s' (TX=%s) for %ds — watch for ROBOT MIC OPENED ==="
+                % (name, mode or "off", secs))
+            time.sleep(secs)
+            opened = getattr(self, "_audio_obs", None) and self._audio_obs._n[0] > 0
+            log("[tx-test] PHASE '%s' result: mic %s" % (name, "OPENED" if opened else "stayed CLOSED"))
+        try:
+            phase("baseline", None, 75)
+            phase("tone", "tone", 75)
+            phase("silence", "silence", 75)
+            self._stop_audio_tx()
+            log("[tx-test] sequence done. Review which phase opened the mic (if any).")
+        except Exception as e:
+            log("[tx-test] error:", e)
+
     def _audio_tx_loop(self, sender):
         frame_bytes = (AUDIO_RATE // 50) * 2             # 20 ms mono s16le
         silence = bytes(frame_bytes)
@@ -629,9 +655,15 @@ class Bridge:
                     pass
             log("[video] ON — camera stream: %s" % self._rtsp_url())
             threading.Thread(target=self._video_diag, daemon=True).start()
-            # NOTE: we do NOT auto-publish a silent audio track here. Tested: it does not make
-            # the robot open its mic (v0.17.1), and it only pollutes the listen feed. Listen is
-            # pure subscribe (mirrors the app's speaker icon); TX runs only for explicit 'talk'.
+            # NOTE: normal operation does NOT auto-publish audio. Tested: publishing a silent
+            # track does not open the robot mic (v0.17.1). Listen is pure subscribe.
+            # DIAG A/B (audio_tx_test option): drive the TX to learn what opens the robot's mic.
+            if self.tx_test in ("silence", "tone"):
+                self._tx_mode = self.tx_test
+                log("[tx-test] audio_tx_test=%s — publishing to see if the mic opens" % self.tx_test)
+                self._start_audio_tx()
+            elif self.tx_test == "auto":
+                threading.Thread(target=self._tx_test_sequence, daemon=True).start()
         else:
             self.video.stop_feed()
             self._stop_audio_tx()
