@@ -154,6 +154,9 @@ class Bridge:
         self._talk_lock = threading.Lock()
         self._tx_run = False           # audio TX loop (keep-alive silence + talk) running?
         self._tx_queue = []            # queued 'talk' sources
+        self._tx_mode = "silence"      # DIAG: idle TX content — "silence" | "tone"
+        self._tx_start_t = 0.0         # DIAG: when we started publishing (to time mic-open)
+        self._tone_buf = None          # DIAG: cached tone PCM (built lazily)
         self.rtsp_port = int(os.environ.get("EBO_RTSP_PORT", "8554"))
         self.rtsp_path = os.environ.get("EBO_RTSP_PATH", "ebo")
         self.robot_uid = None            # the robot's RTC uid, learned on_user_joined
@@ -425,7 +428,13 @@ class Bridge:
                     try:
                         o._n[0] += 1
                         if o._n[0] == 1:
-                            log("[audio] robot mic is OPEN — audio flowing from %s" % uid)
+                            if self._tx_run and self._tx_start_t:
+                                dt = time.time() - self._tx_start_t
+                                log("[audio] *** ROBOT MIC OPENED *** from %s "
+                                    "(tx=%s, %.1fs after TX start)" % (uid, self._tx_mode, dt))
+                            else:
+                                log("[audio] *** ROBOT MIC OPENED *** from %s "
+                                    "(TX was OFF — self-open)" % uid)
                         pipeline.write_audio(frame.buffer)
                     except Exception:
                         pass
@@ -493,9 +502,10 @@ class Bridge:
             if self._tx_run:
                 return
             self._tx_run = True
+        self._tx_start_t = time.time()
         try:
             self.rtc.publish_audio()
-            log("[audio-tx] publishing our audio track (talk → robot speaker)")
+            log("[audio-tx] publishing our audio track (mode=%s)" % self._tx_mode)
         except Exception as e:
             log("[audio-tx] publish_audio failed:", e)
         threading.Thread(target=self._audio_tx_loop, args=(sender,), daemon=True).start()
@@ -551,12 +561,42 @@ class Bridge:
                         except Exception:
                             pass
             else:
-                # keep-alive silence so the two-way channel (and the robot's mic) stays open
+                # keep-alive: silence, or (DIAG) a low tone to test whether the robot opens its
+                # mic only when it hears real audio energy (VAD), not a silent publisher.
+                if self._tx_mode == "tone":
+                    chunk = self._tone_chunk()
+                else:
+                    chunk = silence
                 try:
-                    sender.send_audio_pcm_data(self._mk_pcm(silence))
+                    sender.send_audio_pcm_data(self._mk_pcm(chunk))
                 except Exception:
                     pass
                 time.sleep(0.02)
+
+    def _tone_chunk(self):
+        """One 20 ms chunk of a looping ~400 Hz tone (DIAG). 400 Hz @ 8 kHz = 20 samples/period,
+        so the cached buffer loops click-free. Moderate amplitude for clear VAD energy."""
+        import math
+        n = AUDIO_RATE // 50                 # samples per 20 ms
+        if self._tone_buf is None:
+            per = max(AUDIO_RATE // 400, 1)  # samples per period
+            length = per * 40                # whole number of periods
+            amp = 6000                       # ~ -15 dBFS
+            buf = bytearray(length * 2)
+            for i in range(length):
+                v = int(amp * math.sin(2.0 * math.pi * (i % per) / per))
+                buf[2 * i] = v & 0xFF
+                buf[2 * i + 1] = (v >> 8) & 0xFF
+            self._tone_buf = bytes(buf)
+            self._tone_pos = 0
+        out = bytearray(n * 2)
+        tb = self._tone_buf
+        pos = self._tone_pos
+        for j in range(n * 2):
+            out[j] = tb[pos]
+            pos = (pos + 1) % len(tb)
+        self._tone_pos = pos
+        return bytes(out)
 
     def _talk(self, source):
         """Queue an audio source to play through the robot's speaker. Anything ffmpeg can read:
@@ -1071,6 +1111,7 @@ class Bridge:
         c.subscribe("%s/sleep/set" % NODE)
         c.subscribe("%s/say" % NODE)
         c.subscribe("%s/talk" % NODE)          # play audio (URL/path) through the robot speaker
+        c.subscribe("%s/audio_tx/set" % NODE)  # DIAG A/B: off | silence | tone
         c.subscribe("%s/volume/set" % NODE)
         c.subscribe("%s/talkback_volume/set" % NODE)
         c.subscribe("%s/sports_record/set" % NODE)
@@ -1113,6 +1154,23 @@ class Bridge:
             elif topic.endswith("/talk"):
                 # play arbitrary audio (URL/path) through the robot's speaker — YOUR voice/audio
                 self._talk(payload)
+            elif topic.endswith("/audio_tx/set"):
+                # DIAG A/B: control the publish keep-alive at runtime to test what opens the mic
+                mode = (payload or "").strip().lower()
+                if mode in ("off", "0", "stop"):
+                    self._stop_audio_tx()
+                    log("[audio-tx] DIAG: stopped (TX off)")
+                elif mode in ("silence", "tone"):
+                    self._tx_mode = mode
+                    if getattr(self, "_audio_obs", None) is not None:
+                        self._audio_obs._n[0] = 0   # reset so next MIC-OPENED logs fresh
+                    self._stop_audio_tx()
+                    time.sleep(0.3)
+                    self._start_audio_tx()
+                    log("[audio-tx] DIAG: (re)started, mode=%s — watching for ROBOT MIC OPENED"
+                        % mode)
+                else:
+                    log("[audio-tx] DIAG: unknown mode '%s' (use off|silence|tone)" % mode)
             elif topic.endswith("/volume/set"):
                 self.send(OP_VOLUME, {"playbackVolume": int(float(payload)),
                                       "isPlaybackMuted": False})

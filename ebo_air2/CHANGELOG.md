@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.17.3 — audio DIAGNOSTIC build (A/B what opens the robot's mic)
+- Live finding: with 0.17.1 publishing a silent track for 1h+, the robot's mic never opened — yet
+  our silence looped back through the mix, proving our track WAS published/active. So "an audio
+  publisher exists" is NOT the trigger.
+- Adds a runtime A/B switch over MQTT `ebo_air2/audio_tx/set` = `off` | `silence` | `tone`, and a
+  clear `*** ROBOT MIC OPENED *** (tx=…, N.s after TX start / TX was OFF)` log, to test whether the
+  robot opens its mic only when it hears real audio energy (VAD). `tone` = faint ~400 Hz.
+- Diagnostic only; no behaviour change for normal use.
+
 ## 0.17.2 — honest audio + stop the false "audio works"
 - **0.17.1's silent-track trick did NOT work.** Live test: publishing a silent audio track on
   camera-on did **not** make the robot open its mic (no `before-mix from 200001609`, no
