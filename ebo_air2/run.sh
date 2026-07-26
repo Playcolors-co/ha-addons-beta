@@ -44,6 +44,9 @@ if [ ! -f /data/api_token ]; then
 fi
 export EBO_API_TOKEN="$(cat /data/api_token 2>/dev/null || echo '')"
 export EBO_API_PORT="${EBO_API_PORT:-8098}"
+# Home Assistant core reaches the add-on's API over the internal Supervisor network by hostname
+# (works regardless of LAN/VLAN firewalls, unlike the host IP). Fall back to the container IP.
+export EBO_API_HOST="$(hostname 2>/dev/null || hostname -i 2>/dev/null || echo '')"
 
 # seed the panel store once from the resolved (migrated) values, so the panel has a file to edit
 if [ ! -f "$PANEL_CFG" ]; then

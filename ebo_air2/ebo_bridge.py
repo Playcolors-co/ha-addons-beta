@@ -918,7 +918,9 @@ class Bridge:
         if not self.mqtt or not self.info.get("mac"):
             return
         api_port = os.environ.get("EBO_API_PORT", "8098")
-        host_ip = self.host_ip or ""
+        # HA core reaches the API over the internal network (hostname), NOT the LAN host IP —
+        # the LAN/VLAN may firewall this port. Fall back to host_ip if the hostname is unknown.
+        host_ip = os.environ.get("EBO_API_HOST", "") or self.host_ip or ""
         payload = {
             "node": NODE,
             "name": os.environ.get("EBO_DEVICE_NAME", "EBO Air 2"),
@@ -926,6 +928,7 @@ class Bridge:
             "mac": self.info.get("mac", ""),
             "model": self.info.get("model", "EBO Air 2"),
             "rtsp": self._rtsp_url(),
+            "robot_id": self.robot_id,        # cloud robot id (for remove-from-account)
             # for the native HA integration: its data/command API + token
             "api": ("http://%s:%s" % (host_ip, api_port)) if host_ip else "",
             "token": os.environ.get("EBO_API_TOKEN", ""),

@@ -1,7 +1,7 @@
 name: Enabot (beta)
-version: "0.22.3"
+version: "0.23.0"
 slug: ebo_air2
-description: Control and telemetry for the Enabot EBO Air 2 in Home Assistant (via Enabot cloud)
+description: Manage your Enabot EBO robots in Home Assistant — panel, camera, entities (via Enabot cloud)
 url: https://github.com/Playcolors-co/ha-addons-beta
 # Reverse-engineered, unofficial, undocumented cloud API: mark as experimental.
 stage: experimental
@@ -20,10 +20,11 @@ ports:
   # data API for the native HA integration (token-guarded)
   8098/tcp: 8098
 ports_description:
-  8554/tcp: "RTSP video (robot 1) — rtsp://<HA-IP>:8554/ebo"
-  8555/tcp: "RTSP video (robot 2, if any)"
-  8556/tcp: "RTSP video (robot 3, if any)"
-  8557/tcp: "RTSP video (robot 4, if any)"
+  8554/tcp: "Camera video stream (robot 1) — internal, no need to change"
+  8555/tcp: "Camera video stream (robot 2, if any) — internal"
+  8556/tcp: "Camera video stream (robot 3, if any) — internal"
+  8557/tcp: "Camera video stream (robot 4, if any) — internal"
+  8098/tcp: "Data API for the Enabot integration — internal, no need to change"
 # Our base is python:3.11-slim (not an HA base image with s6): disable HA init.
 init: false
 # Request the Supervisor MQTT service: the broker credentials are provided automatically.

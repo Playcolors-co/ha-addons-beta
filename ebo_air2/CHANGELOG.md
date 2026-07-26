@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.23.0 — native-integration reachability fix + remove robot + account + polish
+- **Fix**: the native integration couldn't reach the add-on API on the LAN IP (VLAN-firewalled).
+  The add-on now announces its API on the internal Supervisor hostname → HA reaches it regardless
+  of LAN/VLAN firewalls. Existing installs self-heal on the next boot (re-discovery).
+- **Remove a robot from the account** from the panel (unbind, DELETE robots/robot/<id>) with a
+  confirmation. Available in the robot detail.
+- The panel header shows the **connected account** (email). Settings now have readable labels
+  (incl. the **Expose entities over MQTT** toggle). Port descriptions clarified (internal).
+- README rewritten: Enabot manages ALL account robots, provides the panel + the integration.
+
 ## 0.22.3 — smooth previews (both views) + Standby
 - Reverted MJPEG (didn't stream through HA Ingress → detail preview went blank). Previews now use
   **double-buffered snapshots** (preload off-screen, swap on load) on BOTH the list and the detail

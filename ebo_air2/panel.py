@@ -51,21 +51,24 @@ ALLOWED_CMDS = {
 # Add-on settings the panel manages (stored in /data/panel.json, read by run.sh). Everything
 # except the account login (email/password) lives here now, not in the Configuration tab.
 EDITABLE_OPTS = {
-    "region": {"type": "text", "default": "GB"},
-    "host": {"type": "text", "default": "ebox-eu.enabotserverintl.com"},
-    "robot_id": {"type": "int", "default": 0},
-    "expose_mqtt": {"type": "bool", "default": True},
-    "video": {"type": "bool", "default": True},
-    "audio": {"type": "bool", "default": True},
-    "talk": {"type": "bool", "default": False},
-    "audio_codec": {"type": "select", "choices": [8, 9], "default": 8},
-    "log_level": {"type": "select", "choices": ["debug", "info", "warning"], "default": "info"},
-    "video_max_height": {"type": "int", "default": 720},
-    "video_fps": {"type": "int", "default": 20},
-    "video_bitrate": {"type": "int", "default": 2500},
+    "expose_mqtt": {"type": "bool", "default": True,
+                    "label": "Expose entities over MQTT (off = native integration only)"},
+    "video": {"type": "bool", "default": True, "label": "Video"},
+    "audio": {"type": "bool", "default": True, "label": "Audio (listen — best-effort)"},
+    "talk": {"type": "bool", "default": False, "label": "Talk (speak to the robot)"},
+    "video_max_height": {"type": "int", "default": 720, "label": "Video max height (px)"},
+    "video_fps": {"type": "int", "default": 20, "label": "Video FPS"},
+    "video_bitrate": {"type": "int", "default": 2500, "label": "Video bitrate (kbps, 0 = uncapped)"},
     "video_preset": {"type": "select",
                      "choices": ["ultrafast", "superfast", "veryfast", "faster", "fast"],
-                     "default": "ultrafast"},
+                     "default": "ultrafast", "label": "Video encoder preset"},
+    "audio_codec": {"type": "select", "choices": [8, 9], "default": 8, "label": "Audio codec"},
+    "log_level": {"type": "select", "choices": ["debug", "info", "warning"], "default": "info",
+                  "label": "Log level"},
+    "region": {"type": "text", "default": "GB", "label": "Account region"},
+    "host": {"type": "text", "default": "ebox-eu.enabotserverintl.com",
+             "label": "Account server host"},
+    "robot_id": {"type": "int", "default": 0, "label": "Robot id (0 = all robots)"},
 }
 
 _robots = {}
@@ -230,6 +233,44 @@ def _qr_png():
     return buf.getvalue()
 
 
+def _find_rid_by_sn(obj, sn):
+    """Find a robot_id in the account's robot list by matching serial number."""
+    if isinstance(obj, dict):
+        if sn and sn in {str(v) for v in obj.values() if isinstance(v, (str, int))}:
+            for k in ("robot_id", "robotId", "id"):
+                if obj.get(k) is not None:
+                    return obj[k]
+        for v in obj.values():
+            r = _find_rid_by_sn(v, sn)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for v in obj:
+            r = _find_rid_by_sn(v, sn)
+            if r is not None:
+                return r
+    return None
+
+
+def _remove_robot(node):
+    """Unbind a robot from the account (DESTRUCTIVE). Prefer the known robot_id; else look up by SN."""
+    with _lock:
+        r = _robots.get(node)
+    if not r:
+        raise RuntimeError("unknown robot")
+    rid = r.get("robot_id")
+    c = ebo_cloud.EboCloud(host=HOST)
+    c.login(EMAIL, PASSWORD, region=REGION)
+    if not rid:
+        rid = _find_rid_by_sn(c.robots(), str(r.get("sn") or ""))
+    if not rid:
+        raise RuntimeError("could not resolve the robot's id on the account")
+    resp = c.unbind(rid)
+    log("[remove] unbound robot_id=%s (%s) -> code=%s" % (rid, r.get("name"), resp.get("code")))
+    threading.Thread(target=_restart_self, daemon=True).start()
+    return {"ok": True, "robot_id": rid}
+
+
 # --------------------------- live preview: one JPEG from RTSP ---------------------------
 def _snapshot(node):
     with _lock:
@@ -293,6 +334,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps(list(_robots.values())))
         if path.endswith("/api/options"):
             return self._send(200, json.dumps({"values": _read_cfg(), "schema": EDITABLE_OPTS}))
+        if path.endswith("/api/account"):
+            return self._send(200, json.dumps({"email": EMAIL}))
         if path.endswith("/api/snapshot"):
             q = parse_qs(urlparse(self.path).query)
             jpg = _snapshot((q.get("node") or [""])[0])
@@ -382,6 +425,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(500, json.dumps({"error": str(e)}))
         if path.endswith("/api/pair/status"):
             return self._send(200, json.dumps(_pair_status()))
+        if path.endswith("/api/robot/remove"):
+            try:
+                return self._send(200, json.dumps(_remove_robot(str(body.get("node", "")))))
+            except Exception as e:
+                log("[remove] failed:", e)
+                return self._send(500, json.dumps({"error": str(e)}))
         if path.endswith("/api/restart"):
             threading.Thread(target=_restart_self, daemon=True).start()
             return self._send(200, json.dumps({"ok": True}))
@@ -398,7 +447,7 @@ body{font-family:system-ui,sans-serif;margin:0;background:#f4f5f7;color:#111}
 header{padding:14px 18px;font-size:20px;font-weight:600;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:inherit;border-bottom:1px solid #0001}
 .btn{border:0;border-radius:9px;padding:8px 12px;font-size:13px;cursor:pointer;background:#e6e8eb;color:inherit}
 @media(prefers-color-scheme:dark){.btn{background:#2a3138;color:#e9ecef}}
-.btn:hover{filter:brightness(.95)}.btn.pri{background:#2b6cff;color:#fff}
+.btn:hover{filter:brightness(.95)}.btn.pri{background:#2b6cff;color:#fff}.btn.danger{background:#c0392b;color:#fff}
 .list{padding:10px 14px 24px;max-width:760px;margin:0 auto}
 .rowitem{display:flex;gap:12px;align-items:center;background:#fff;border-radius:12px;padding:10px;margin-bottom:10px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.1)}
 @media(prefers-color-scheme:dark){.rowitem{background:#1c2126}}
@@ -427,7 +476,8 @@ dialog{border:0;border-radius:14px;padding:0;max-width:440px;width:92%;backgroun
 dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;margin-top:10px}
 </style></head><body>
 <header>
-  <span id="title" onclick="goBack()" style="cursor:pointer">🤖 Enabot</span>
+  <span><span id="title" onclick="goBack()" style="cursor:pointer">🤖 Enabot</span>
+        <span id="acct" style="font-size:12px;color:#8a929a;font-weight:400"></span></span>
   <span><button class="btn" id="addbtn" onclick="openAdd()">+ Add robot</button>
         <button class="btn" onclick="openOpts()">⚙ Settings</button></span>
 </header>
@@ -518,6 +568,7 @@ function detailView(r){
         <button class="btn" onclick="cmd('${r.node}','sports_record/set','off')">OFF</button>
       </div>
     </div>
+    <div class="row" style="margin-top:14px"><button class="btn danger" onclick="removeRobot('${r.node}')">🗑 Remove from account</button></div>
     <div class="url">${esc(r.url)}</div>
   </div>`;
 }
@@ -553,7 +604,7 @@ async function openOpts(){
   const d = await (await fetch(B+'/api/options')).json(); const sc=d.schema, v=d.values;
   let h='';
   for(const k in sc){const s=sc[k];
-    h+=`<label>${k}</label>`;
+    h+=`<label>${s.label||k}</label>`;
     if(s.type==='bool') h+=`<select id="o-${k}"><option ${v[k]?'selected':''}>true</option><option ${!v[k]?'selected':''}>false</option></select>`;
     else if(s.type==='select') h+=`<select id="o-${k}">${s.choices.map(c=>`<option ${c==v[k]?'selected':''}>${c}</option>`).join('')}</select>`;
     else if(s.type==='text') h+=`<input id="o-${k}" type="text" value="${v[k]??''}">`;
@@ -604,6 +655,14 @@ async function pairPoll(){
   }catch(e){}
 }
 function stopPair(){ if(pairTimer){clearInterval(pairTimer);pairTimer=null;} document.getElementById('add').close(); }
+async function removeRobot(node){
+  const r=ROBOTS.find(x=>x.node===node); const name=r?(r.name||node):node;
+  if(!confirm('Remove "'+name+'" from your Enabot account?\n\nThis UNBINDS the robot (you will need to pair it again to use it). This cannot be undone.')) return;
+  const res=await fetch(B+'/api/robot/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node})});
+  const j=await res.json();
+  if(res.ok&&j.ok){ alert('Removed. The add-on is restarting…'); goBack(); }
+  else alert('Could not remove: '+(j.error||res.status));
+}
 // smooth preview: preload the next snapshot off-screen, then swap it in on load (no blank/flicker)
 function previewLoop(){
   document.querySelectorAll('img.prev').forEach(el=>{
@@ -613,6 +672,7 @@ function previewLoop(){
     im.src=B+'/api/snapshot?node='+encodeURIComponent(n)+'&t='+Date.now();
   });
 }
+fetch(B+'/api/account').then(r=>r.json()).then(a=>{ if(a.email) document.getElementById('acct').textContent=' · '+a.email; }).catch(()=>{});
 refresh(); setInterval(refresh, 4000);
 previewLoop(); setInterval(previewLoop, 900);
 </script></body></html>"""

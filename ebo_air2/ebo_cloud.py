@@ -124,6 +124,10 @@ class EboCloud:
         return self._req("POST", "/api/v1/ebox/robots/bind_status",
                          body_obj={"bind_key": key, "ebo_id": str(ebo_id)})
 
+    def unbind(self, robot_id):
+        """Remove (unbind) a robot from the account. DELETE, id in the path, no body. DESTRUCTIVE."""
+        return self._req("DELETE", "/api/v1/ebox/robots/robot/%d" % int(robot_id))
+
     def robot_session(self, robot_id: int):
         """Return a fresh Agora session for the robot."""
         return self._req("POST", "/api/v1/ebox/robots/session", body_obj={"robot_id": robot_id})
