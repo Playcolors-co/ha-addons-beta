@@ -718,7 +718,15 @@ class Bridge:
 
     def set_camera(self, on):
         self.video_on = on
-        self._camera_feed(on)
+        # The robot wakes/sleeps by our PRESENCE in the Agora RTC channel — exactly like the app
+        # (open app = join = wake; close = leave = sleep). The isSleeping opcode alone does NOT
+        # reliably wake it once it has gone to standby. So: turning the camera ON while the session
+        # is disconnected first re-joins RTC (which wakes the robot) and connect_agora() then starts
+        # the feed itself (video_on is already True). If we're already connected, just feed.
+        if on and not self.connected:
+            self.set_connected(True)     # connect_agora() starts the feed because video_on=True
+        else:
+            self._camera_feed(on)
         self._publish_camera_state()
 
     def set_connected(self, on):

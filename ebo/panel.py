@@ -607,9 +607,12 @@ function meta(r){const st=r.state||{};
   return `${r.model||'EBO'} · 🔋 ${bat} · 📶 ${wifi}`;}
 function thumb(n){return `${B}/api/snapshot?node=${encodeURIComponent(n)}&t=${Math.floor(Date.now()/4000)}`}
 function bg(node,suffix,payload){ fetch(B+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node,suffix,payload})}).catch(()=>{}); }
-function openRobot(n){ SEL=n; render(true); bg(n,'camera/set','on'); bg(n,'wake',''); }  // connect+wake like the app
-function goBack(){ const p=SEL; SEL=null; render(true); if(p) bg(p,'sleep/set','on'); }  // standby on exit
-function driveNow(n){ SEL=n; render(true); bg(n,'camera/set','on'); bg(n,'wake',''); setTimeout(()=>enterFS(n),60); }
+// Enter detail/drive → camera/set on. Bridge-side this JOINS the Agora RTC channel, which WAKES
+// the robot exactly like opening the app (real viewer present). goBack → connected/set off leaves
+// the channel so the robot goes back to standby (ZZ). No unreliable isSleeping opcode dance.
+function openRobot(n){ SEL=n; render(true); bg(n,'camera/set','on'); }   // join RTC = wake (like the app)
+function goBack(){ const p=SEL; SEL=null; render(true); if(p) bg(p,'connected/set','off'); }  // leave = standby
+function driveNow(n){ SEL=n; render(true); bg(n,'camera/set','on'); setTimeout(()=>enterFS(n),60); }
 
 // --- driving: hold a D-pad button to move, release to stop (analog vector + watchdog) ---
 let driveSpeed=60, moveNode=null, moveTimer=null;
@@ -641,7 +644,7 @@ function dpad(node){
 let fsTimer=null;
 function fsActions(node){
   const b=(s,p,t)=>`<button class="btn" onclick="cmd('${node}','${s}','${p}')">${t}</button>`;
-  return b('camera/set','on','📷 Camera')+b('wake','','☀ Wake')+b('laser/set','on','• Laser')+b('dock','','⌂ Dock')+b('sleep/set','on','🌙 Standby');
+  return b('camera/set','on','☀ Wake')+b('laser/set','on','• Laser')+b('dock','','⌂ Dock')+b('connected/set','off','🌙 Standby');
 }
 let wakeTimer=null;
 // Fluid video: the add-on's Low-Latency HLS, played in a <video> via hls.js, PROXIED through
@@ -673,14 +676,16 @@ function enterFS(node){
   document.getElementById('fs-pad').innerHTML=dpad(node);
   document.getElementById('fs-act').innerHTML=fsActions(node);
   const v=document.getElementById('fsvid');
+  v.setAttribute('data-node',node);                 // keyboard driving reads the node from here
   document.getElementById('fs-sp').value=driveSpeed;
   const fs=document.getElementById('fs'); fs.classList.remove('hidectl'); fs.style.display='block';
   fs.focus();                                       // keyboard focus so the arrow keys reach us
-  bg(node,'camera/set','on'); bg(node,'wake','');   // connect + wake (like opening the app)
+  bg(node,'camera/set','on');                       // join RTC + feed = wake (like opening the app)
   setTimeout(()=>fsPlay(node),400);                 // give the camera a moment, then play HLS
   if(fs.requestFullscreen) fs.requestFullscreen().then(()=>fs.focus()).catch(()=>{});
   if(wakeTimer) clearInterval(wakeTimer);
-  wakeTimer=setInterval(()=>bg(node,'wake',''),15000);   // keep the robot awake while driving
+  // keep-alive while driving: re-assert the camera/RTC session so the robot can't drift to standby
+  wakeTimer=setInterval(()=>bg(node,'camera/set','on'),20000);
 }
 function toggleFsControls(){ document.getElementById('fs').classList.toggle('hidectl'); }
 function exitFS(){
@@ -734,8 +739,8 @@ function detailView(r){
     <div id="d-meta" class="dmeta">${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}</div>
     <div class="row">
       <button id="d-cam" class="btn ${cam?'pri':''}" onclick="cmd('${r.node}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
-      <button class="btn" onclick="cmd('${r.node}','wake','')">☀ Wake</button>
-      <button class="btn" onclick="cmd('${r.node}','sleep/set','on')">🌙 Standby</button>
+      <button class="btn" onclick="cmd('${r.node}','camera/set','on')">☀ Wake</button>
+      <button class="btn" onclick="cmd('${r.node}','connected/set','off')">🌙 Standby</button>
       <button class="btn" onclick="cmd('${r.node}','laser/set','on')">Laser</button>
       <button class="btn" onclick="cmd('${r.node}','dock','')">Dock</button>
     </div>
