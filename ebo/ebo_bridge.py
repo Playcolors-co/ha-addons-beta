@@ -1019,10 +1019,21 @@ class Bridge:
 
     def _publish_discovery(self, c):
         c.publish("%s/status" % NODE, "online", retain=True)
+        # ALWAYS subscribe to the command topics FIRST — the bridge must receive commands even in
+        # native mode (expose_mqtt off), where the HA-entity discovery below is skipped. (These used
+        # to sit AFTER the expose_mqtt gate, so native mode silently stopped receiving commands.)
+        for _t in ("laser/set", "speed/set", "move/+", "move/vector", "joystick", "sleep/set",
+                   "wake", "say", "talk", "audio_tx/set", "volume/set", "talkback_volume/set",
+                   "sports_record/set", "call_rec/set", "upload_cloud/set", "dock",
+                   "patrol/route/set", "patrol/start", "camera/set", "connected/set",
+                   "rotate/set", "video_quality/set", "image_style/set", "shoot_mode/set",
+                   "move_mode/set", "eyes/set", "roaming/set", "ai_track", "motion/set",
+                   "voice/set", "ai_ask"):
+            c.subscribe("%s/%s" % (NODE, _t))
         if not self.expose_mqtt:
             # native-integration mode: skip MQTT entity discovery (the panel/integration still
-            # get state via <node>/state and commands via the topics). Status stays for the panel.
-            log("[MQTT] expose_mqtt=off — not publishing HA entity discovery")
+            # get state via <node>/state and commands via the topics subscribed above).
+            log("[MQTT] expose_mqtt=off — subscribed to commands; skipping HA entity discovery")
             return
         st = "%s/state" % NODE
 

@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.26.9 — CRITICAL FIX: no commands worked in native mode (missing subscriptions)
+- The bridge's **command topic subscriptions** were located AFTER the `expose_mqtt` gate inside the
+  discovery method. Since native mode (the default since 0.26.0) sets `expose_mqtt: off`, that method
+  returned early — so the bridge **never subscribed to the command topics** and ignored every command
+  (wake / laser / move / camera / everything), though telemetry still flowed. Subscriptions now run
+  **unconditionally on connect**, before the discovery gate. This is the real cause of "nothing works".
+
+
 ## 0.26.8 — FIX: commands stop reaching the robot (blocking sends on the receive thread)
 - Root cause of "nothing responds after a while": `rtm.publish()` ran **synchronously on the MQTT
   receive thread**. When a cloud send got slow, it blocked that thread, so no further command was
