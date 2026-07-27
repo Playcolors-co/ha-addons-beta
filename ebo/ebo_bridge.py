@@ -245,16 +245,19 @@ class Bridge:
             def on_login_result(o, req, err):
                 log("[RTM] login result:", err)
 
-        self.rtm = create_rtm_client(RtmConfig(
-            app_id=s["app_id"], user_id=s["rtm_user"], use_string_user_id=1,
-            presence_timeout=300, heartbeat_interval=5, event_handler=RtmH(),
-        ))
-        r, _ = self.rtm.login(s["rtm_token"])
-        if r != 0:
-            raise RuntimeError("RTM login failed: %s" % self.rtm.get_error_reason(r))
-        self.rtm.subscribe(s["robot_rtm"],
-                           SubscribeOptions(with_message=True, with_presence=True))
-        log("[RTM] login and subscribe ok")
+        if self.rtm is None:      # reuse an existing RTM login (telemetry) across RTC reconnects
+            self.rtm = create_rtm_client(RtmConfig(
+                app_id=s["app_id"], user_id=s["rtm_user"], use_string_user_id=1,
+                presence_timeout=300, heartbeat_interval=5, event_handler=RtmH(),
+            ))
+            r, _ = self.rtm.login(s["rtm_token"])
+            if r != 0:
+                raise RuntimeError("RTM login failed: %s" % self.rtm.get_error_reason(r))
+            self.rtm.subscribe(s["robot_rtm"],
+                               SubscribeOptions(with_message=True, with_presence=True))
+            log("[RTM] login and subscribe ok")
+        else:
+            log("[RTM] reusing existing login")
 
         svc = AgoraService()
         scfg = AgoraServiceConfig()
@@ -803,12 +806,9 @@ class Bridge:
                     self.rtc.disconnect()
             except Exception:
                 pass
-            try:
-                if self.rtm:
-                    self.rtm.logout()
-            except Exception:
-                pass
-            self.rtm = None
+            # DIAG(0.26.32): keep RTM logged in (telemetry) — only leave the RTC video channel. If the
+            # robot goes to ZZ anyway, then RTC presence alone is what keeps it awake and we can keep
+            # battery/wifi live while it sleeps.
             self.rtc = None
             self._observers_registered = False
             # Standby stops the video too — reflect it so Home Assistant shows a clear change
