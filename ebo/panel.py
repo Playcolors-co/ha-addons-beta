@@ -328,7 +328,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self._authed():
             return self._send(403, json.dumps({"error": "forbidden"}))
+        # HLS proxy: play the fluid Low-Latency HLS through Ingress (same origin → no CSP/CORS
+        # trouble with a cross-origin port). /hlsp/<port>/<rest> -> 127.0.0.1:<port>/<rest>.
+        if "/hlsp/" in self.path:
+            rest = self.path.split("/hlsp/", 1)[1]
+            port, _, sub = rest.partition("/")
+            return self._proxy_hls(port, sub)
         path = urlparse(self.path).path.rstrip("/")
+        if path.endswith("/hls.min.js"):
+            try:
+                with open("/app/hls.min.js", "rb") as f:
+                    return self._send(200, f.read(), "application/javascript")
+            except Exception:
+                return self._send(404, b"", "text/plain")
         if path.endswith("/api/robots"):
             with _lock:
                 return self._send(200, json.dumps(list(_robots.values())))
@@ -347,6 +359,25 @@ class Handler(BaseHTTPRequestHandler):
             q = parse_qs(urlparse(self.path).query)
             return self._mjpeg((q.get("node") or [""])[0])
         return self._send(200, PAGE, "text/html; charset=utf-8")
+
+    def _proxy_hls(self, port, sub):
+        """Forward an HLS request to the local mediamtx (127.0.0.1:<port>). Restricted to the HLS
+        ports so it can't be used as an open proxy."""
+        if not port.isdigit() or not (8888 <= int(port) <= 8891):
+            return self._send(400, b"", "text/plain")
+        url = "http://127.0.0.1:%s/%s" % (port, sub)
+        try:
+            with urllib.request.urlopen(url, timeout=20) as r:
+                data = r.read()
+                ctype = r.headers.get("Content-Type", "application/octet-stream")
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception:
+            self._send(502, b"", "text/plain")
 
     def _mjpeg(self, node):
         """Stream a live MJPEG preview (multipart) from the robot's RTSP — smooth, no flicker."""
@@ -484,7 +515,7 @@ input[type=range]{width:100%}
 .drive .sp{flex:1;min-width:150px}
 /* fullscreen gamepad */
 #fs{position:fixed;inset:0;background:#000;z-index:9999;display:none}
-#fsvid{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
+#fsvid{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;object-fit:contain}
 .fs-tap{position:absolute;inset:0;z-index:1}   /* tap the video to show/hide controls */
 .fsx{position:absolute;top:12px;right:14px;z-index:2;background:#000a;color:#fff;border:0;border-radius:50%;width:42px;height:42px;font-size:18px;cursor:pointer}
 .fs-pad{position:absolute;left:22px;bottom:22px;z-index:2;opacity:.92}
@@ -519,7 +550,7 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 <div id="view"></div>
 
 <div id="fs" tabindex="0">
-  <iframe id="fsvid" allow="autoplay"></iframe>
+  <video id="fsvid" autoplay muted playsinline></video>
   <div class="fs-tap" onclick="toggleFsControls()"></div>
   <button class="fsx" onclick="exitFS()">✕</button>
   <div class="fs-pad" id="fs-pad"></div>
@@ -562,6 +593,7 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 
 <script>
 const B = window.location.pathname.replace(/\/$/,'');
+(function(){ const s=document.createElement('script'); s.src=B+'/hls.min.js'; s.async=true; document.head.appendChild(s); })();  // fluid HLS player
 const VQ=["Low","Medium","High"], IS=["Standard","Vivid","Soft"], EY=["Dynamic","Clock","Custom"];
 let ROBOTS=[], SEL=null;
 async function cmd(node,suffix,payload){
@@ -612,16 +644,30 @@ function fsActions(node){
   return b('camera/set','on','📷 Camera')+b('wake','','☀ Wake')+b('laser/set','on','• Laser')+b('dock','','⌂ Dock')+b('sleep/set','on','🌙 Standby');
 }
 let wakeTimer=null;
-// Fluid video: play the add-on's Low-Latency HLS directly (mediamtx's player page), reachable at
-// the SAME host you opened HA on, on the robot's HLS port (8888 = robot 1). Falls back to nothing.
-function hlsUrl(node){
+// Fluid video: the add-on's Low-Latency HLS, played in a <video> via hls.js, PROXIED through
+// Ingress (same origin) so no cross-origin/CSP trouble. Port 8888 = robot 1.
+function hlsSrc(node){
   const r=ROBOTS.find(x=>x.node===node);
   if(!r||!r.rtsp) return '';
   try{
     const u=new URL(r.rtsp.replace(/^rtsp:/,'http:'));
     const port=8888+(parseInt(u.port||'8554',10)-8554);
-    return location.protocol+'//'+location.hostname+':'+port+u.pathname;
+    const path=u.pathname.replace(/^\//,'');
+    return B+'/hlsp/'+port+'/'+path+'/index.m3u8';
   }catch(e){ return ''; }
+}
+function fsPlay(node){
+  const v=document.getElementById('fsvid'); const src=hlsSrc(node);
+  if(v._hls){ try{v._hls.destroy();}catch(e){} v._hls=null; }
+  if(!src) return;
+  if(window.Hls && Hls.isSupported()){
+    const hls=new Hls({lowLatencyMode:true, backBufferLength:4});
+    hls.on(Hls.Events.ERROR,(e,d)=>{ if(d.fatal){ try{hls.destroy();}catch(x){} setTimeout(()=>{ if(document.getElementById('fs').style.display==='block') fsPlay(node); },1500); }});
+    hls.loadSource(src); hls.attachMedia(v); v._hls=hls;
+    v.play().catch(()=>{});
+  } else if(v.canPlayType('application/vnd.apple.mpegurl')){
+    v.src=src; v.play().catch(()=>{});
+  }
 }
 function enterFS(node){
   document.getElementById('fs-pad').innerHTML=dpad(node);
@@ -631,7 +677,7 @@ function enterFS(node){
   const fs=document.getElementById('fs'); fs.classList.remove('hidectl'); fs.style.display='block';
   fs.focus();                                       // keyboard focus so the arrow keys reach us
   bg(node,'camera/set','on'); bg(node,'wake','');   // connect + wake (like opening the app)
-  const url=hlsUrl(node); v.src = url || 'about:blank';   // fluid Low-Latency HLS video
+  setTimeout(()=>fsPlay(node),400);                 // give the camera a moment, then play HLS
   if(fs.requestFullscreen) fs.requestFullscreen().then(()=>fs.focus()).catch(()=>{});
   if(wakeTimer) clearInterval(wakeTimer);
   wakeTimer=setInterval(()=>bg(node,'wake',''),15000);   // keep the robot awake while driving
@@ -640,7 +686,9 @@ function toggleFsControls(){ document.getElementById('fs').classList.toggle('hid
 function exitFS(){
   stopMove(); if(fsTimer){clearInterval(fsTimer);fsTimer=null;}
   if(wakeTimer){clearInterval(wakeTimer);wakeTimer=null;}
-  document.getElementById('fsvid').src='about:blank';   // stop the HLS video
+  const v=document.getElementById('fsvid');
+  if(v._hls){ try{v._hls.destroy();}catch(e){} v._hls=null; }
+  v.removeAttribute('src'); try{v.load();}catch(e){}   // stop the HLS video
   document.getElementById('fs').style.display='none';
   if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
 }

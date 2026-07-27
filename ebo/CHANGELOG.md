@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.26.13 — fluid drive video that works through Ingress (hls.js + proxy)
+- The 0.26.12 fluid HLS was black in the panel because HA's Ingress blocks the nested iframe. Now the
+  fullscreen 'drive' view plays the Low-Latency HLS in a **<video> via hls.js**, with the stream
+  **proxied through the add-on/Ingress** (same origin) — so it plays fluidly inside the panel, no
+  CSP/CORS trouble. Falls back to the snapshot preview if hls.js is unavailable.
+
+
 ## 0.26.12 — FLUID drive video (Low-Latency HLS) in fullscreen
 - The fullscreen 'drive' view now plays the robot's **Low-Latency HLS** stream (mediamtx) instead of
   choppy snapshots → **fluid, ~0.5-1s latency** video for actually driving. Served on port 8888
