@@ -65,9 +65,22 @@ class VideoPipeline(IVideoFrameObserver):
         # per-instance temp file: a fixed /tmp path would (a) be a predictable-path smell and
         # (b) COLLIDE when the add-on runs one bridge per robot (multi-robot). Key it by port.
         cfg = os.path.join(tempfile.gettempdir(), "ebo_mediamtx_%d.yml" % self.rtsp_port)
+        # Low-Latency HLS for a FLUID browser preview (the snapshot path is choppy). HTTP-based, so
+        # it works straight through the add-on's mapped port — no WebRTC/ICE finickiness. ~0.5-1s.
+        self.hls_port = 8888 + (self.rtsp_port - 8554)
         with open(cfg, "w") as f:
             f.write("logLevel: error\n"
                     f"rtspAddress: :{self.rtsp_port}\n"
+                    "hls: yes\n"
+                    f"hlsAddress: :{self.hls_port}\n"
+                    "hlsVariant: lowLatency\n"
+                    "hlsAlwaysRemux: yes\n"
+                    "hlsSegmentCount: 7\n"
+                    "hlsSegmentDuration: 1s\n"
+                    "hlsPartDuration: 200ms\n"
+                    "hlsAllowOrigin: '*'\n"
+                    "webrtc: no\n"
+                    "rtmp: no\n"
                     "paths:\n  all_others:\n")
         try:
             self.mediamtx = subprocess.Popen(

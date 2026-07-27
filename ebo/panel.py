@@ -484,7 +484,8 @@ input[type=range]{width:100%}
 .drive .sp{flex:1;min-width:150px}
 /* fullscreen gamepad */
 #fs{position:fixed;inset:0;background:#000;z-index:9999;display:none}
-#fsvid{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+#fsvid{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
+.fs-tap{position:absolute;inset:0;z-index:1}   /* tap the video to show/hide controls */
 .fsx{position:absolute;top:12px;right:14px;z-index:2;background:#000a;color:#fff;border:0;border-radius:50%;width:42px;height:42px;font-size:18px;cursor:pointer}
 .fs-pad{position:absolute;left:22px;bottom:22px;z-index:2;opacity:.92}
 .fs-pad .dpad{grid-template-columns:repeat(3,68px);grid-template-rows:repeat(3,68px)}
@@ -518,7 +519,8 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 <div id="view"></div>
 
 <div id="fs" tabindex="0">
-  <img id="fsvid" class="prev" data-node="" onclick="toggleFsControls()">
+  <iframe id="fsvid" allow="autoplay"></iframe>
+  <div class="fs-tap" onclick="toggleFsControls()"></div>
   <button class="fsx" onclick="exitFS()">✕</button>
   <div class="fs-pad" id="fs-pad"></div>
   <input class="fs-sp" id="fs-sp" type="range" min="1" max="100" value="60" oninput="driveSpeed=+this.value">
@@ -610,18 +612,27 @@ function fsActions(node){
   return b('camera/set','on','📷 Camera')+b('wake','','☀ Wake')+b('laser/set','on','• Laser')+b('dock','','⌂ Dock')+b('sleep/set','on','🌙 Standby');
 }
 let wakeTimer=null;
+// Fluid video: play the add-on's Low-Latency HLS directly (mediamtx's player page), reachable at
+// the SAME host you opened HA on, on the robot's HLS port (8888 = robot 1). Falls back to nothing.
+function hlsUrl(node){
+  const r=ROBOTS.find(x=>x.node===node);
+  if(!r||!r.rtsp) return '';
+  try{
+    const u=new URL(r.rtsp.replace(/^rtsp:/,'http:'));
+    const port=8888+(parseInt(u.port||'8554',10)-8554);
+    return location.protocol+'//'+location.hostname+':'+port+u.pathname;
+  }catch(e){ return ''; }
+}
 function enterFS(node){
   document.getElementById('fs-pad').innerHTML=dpad(node);
   document.getElementById('fs-act').innerHTML=fsActions(node);
-  const v=document.getElementById('fsvid'); v.setAttribute('data-node',node);
+  const v=document.getElementById('fsvid');
   document.getElementById('fs-sp').value=driveSpeed;
   const fs=document.getElementById('fs'); fs.classList.remove('hidectl'); fs.style.display='block';
   fs.focus();                                       // keyboard focus so the arrow keys reach us
   bg(node,'camera/set','on'); bg(node,'wake','');   // connect + wake (like opening the app)
+  const url=hlsUrl(node); v.src = url || 'about:blank';   // fluid Low-Latency HLS video
   if(fs.requestFullscreen) fs.requestFullscreen().then(()=>fs.focus()).catch(()=>{});
-  if(fsTimer) clearInterval(fsTimer);
-  fsTimer=setInterval(()=>{ const im=new Image(); im.onload=()=>{v.src=im.src};
-    im.src=B+'/api/snapshot?node='+encodeURIComponent(node)+'&t='+Date.now(); },250);
   if(wakeTimer) clearInterval(wakeTimer);
   wakeTimer=setInterval(()=>bg(node,'wake',''),15000);   // keep the robot awake while driving
 }
@@ -629,6 +640,7 @@ function toggleFsControls(){ document.getElementById('fs').classList.toggle('hid
 function exitFS(){
   stopMove(); if(fsTimer){clearInterval(fsTimer);fsTimer=null;}
   if(wakeTimer){clearInterval(wakeTimer);wakeTimer=null;}
+  document.getElementById('fsvid').src='about:blank';   // stop the HLS video
   document.getElementById('fs').style.display='none';
   if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
 }

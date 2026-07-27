@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.26.12 — FLUID drive video (Low-Latency HLS) in fullscreen
+- The fullscreen 'drive' view now plays the robot's **Low-Latency HLS** stream (mediamtx) instead of
+  choppy snapshots → **fluid, ~0.5-1s latency** video for actually driving. Served on port 8888
+  (per robot), reachable directly from your browser (HTTP, no WebRTC/ICE hassle). List/detail
+  thumbnails stay on snapshots (fine for previews).
+
+
 ## 0.26.11 — lower-latency preview, wake-on-drive, keyboard driving fixed
 - **Video latency:** reverted the persistent MJPEG feeder (it buffered → laggy). Back to fresh
   per-frame grabs with `nobuffer`/`low_delay`/tiny probe, short 0.25 s cache, and a shorter RTSP
