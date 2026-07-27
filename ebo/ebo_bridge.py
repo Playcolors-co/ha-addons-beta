@@ -147,6 +147,12 @@ class Bridge:
         # The Agora SDK is not thread-safe, and — crucially — a slow cloud send must never run on
         # the MQTT receive thread, or it blocks delivery of every following command.
         self._send_q = queue.Queue(maxsize=256)
+        # Movement is COALESCED, not queued: only the latest vector matters, so a new move overwrites
+        # any pending one instead of piling up behind slow cloud sends. It's also sent with priority
+        # each sender pass, so steering stays responsive even when the RTM link is degrading.
+        self._latest_move = None
+        self._move_lock = threading.Lock()
+        self._send_evt = threading.Event()
         self.stop = threading.Event()
 
         self.rtm = None
@@ -829,35 +835,54 @@ class Bridge:
         if data is not None:
             msg["data"] = data
         payload = json.dumps(msg, separators=(",", ":")).encode()
+        if mid == OP_MOVE:
+            # coalesce: only the newest steering vector matters — replace any pending one
+            with self._move_lock:
+                self._latest_move = payload
+        else:
+            try:
+                self._send_q.put_nowait((mid, payload))
+            except queue.Full:
+                pass   # under backpressure drop the stale command
+        self._send_evt.set()
+
+    def _publish_now(self, mid, payload):
+        rtm = self.rtm
+        if not rtm:
+            return
+        t0 = time.perf_counter()
         try:
-            self._send_q.put_nowait((mid, payload))
-        except queue.Full:
-            pass   # under backpressure drop the stale command (the move watchdog keeps it safe)
+            r, _ = rtm.publish(self.s["robot_rtm"], payload, self._opts())
+        except Exception as e:
+            log("[!] publish %s error: %s" % (mid, e))
+            return
+        dt = (time.perf_counter() - t0) * 1000.0
+        if dt > 2000:   # only when genuinely slow (cloud degrading) — not normal jitter
+            log("[timing] ⚠ slow RTM dispatch of cmd %s: %.0f ms — the cloud link is degrading"
+                % (mid, dt))
+        if r != 0:
+            log("[!] publish %s failed: %s" % (mid, rtm.get_error_reason(r)))
 
     def _sender_loop(self):
         """The ONLY thread that calls rtm.publish(): serializes every send (the SDK is not
-        thread-safe) and keeps slow cloud sends off the receive/control threads, so one slow send
-        never stalls command delivery."""
+        thread-safe) and keeps slow cloud sends off the receive/control threads. Movement is sent
+        FIRST each pass (and coalesced) so steering stays responsive even when the link is slow."""
         while not self.stop.is_set():
-            try:
-                mid, payload = self._send_q.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            rtm = self.rtm
-            if not rtm:
-                continue
-            t0 = time.perf_counter()
-            try:
-                r, _ = rtm.publish(self.s["robot_rtm"], payload, self._opts())
-            except Exception as e:
-                log("[!] publish %s error: %s" % (mid, e))
-                continue
-            dt = (time.perf_counter() - t0) * 1000.0
-            if dt > 2000:   # only when genuinely slow (cloud degrading) — not normal jitter
-                log("[timing] ⚠ slow RTM dispatch of cmd %s: %.0f ms — the cloud link is degrading"
-                    % (mid, dt))
-            if r != 0:
-                log("[!] publish %s failed: %s" % (mid, rtm.get_error_reason(r)))
+            self._send_evt.wait(0.5)
+            self._send_evt.clear()
+            while not self.stop.is_set():
+                mv = None
+                with self._move_lock:
+                    if self._latest_move is not None:
+                        mv, self._latest_move = self._latest_move, None
+                if mv is not None:
+                    self._publish_now(OP_MOVE, mv)   # priority: latest steering vector
+                    continue
+                try:
+                    mid, payload = self._send_q.get_nowait()
+                except queue.Empty:
+                    break
+                self._publish_now(mid, payload)
 
     def _on_rtm(self, event):
         try:
