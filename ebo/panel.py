@@ -271,38 +271,63 @@ def _remove_robot(node):
 
 
 # --------------------------- live preview: one JPEG from RTSP ---------------------------
+_feeders = {}      # node -> feeder thread
+_feed_last = {}    # node -> time of the last snapshot request (feeder stops when idle)
+
+
+def _mjpeg_feeder(node, url):
+    """One persistent ffmpeg per node: RTSP -> MJPEG, keep the LATEST frame in _snap_cache so
+    /api/snapshot answers instantly (low latency, ~10-15 fps). Auto-stops when nobody's watching."""
+    p = urlparse(url)
+    internal = "rtsp://127.0.0.1:%s%s" % (p.port or 8554, p.path)
+    while time.time() - _feed_last.get(node, 0) < 15:
+        proc = None
+        try:
+            proc = subprocess.Popen(
+                ["ffmpeg", "-nostdin", "-loglevel", "error", "-fflags", "nobuffer",
+                 "-flags", "low_delay", "-rtsp_transport", "tcp", "-i", internal,
+                 "-an", "-f", "mjpeg", "-q:v", "6", "pipe:1"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+            buf = b""
+            while time.time() - _feed_last.get(node, 0) < 15:
+                chunk = proc.stdout.read(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                end = buf.rfind(b"\xff\xd9")                 # last complete JPEG (SOI..EOI)
+                if end != -1:
+                    start = buf.rfind(b"\xff\xd8", 0, end)
+                    if start != -1:
+                        _snap_cache[node] = (time.time(), buf[start:end + 2])
+                        buf = buf[end + 2:]
+                if len(buf) > 4_000_000:
+                    buf = buf[-1_000_000:]
+        except Exception:
+            pass
+        finally:
+            if proc:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        if time.time() - _feed_last.get(node, 0) < 15:
+            time.sleep(2)     # ffmpeg died (camera off?) — retry while someone's watching
+    _feeders.pop(node, None)
+
+
 def _snapshot(node):
     with _lock:
         r = _robots.get(node)
         url = r and r.get("rtsp")
     if not url:
         return None
-    now = time.time()
-    ts, cached = _snap_cache.get(node, (0, None))
-    if cached and now - ts < 0.8:
-        return cached
-    # one grab per node at a time — concurrent requests get the last frame (no ffmpeg pile-up)
-    lock = _snap_lock.setdefault(node, threading.Lock())
-    if not lock.acquire(blocking=False):
-        return cached
-    try:
-        ts, cached = _snap_cache.get(node, (0, None))
-        if cached and time.time() - ts < 0.8:
-            return cached
-        p = urlparse(url)
-        internal = "rtsp://127.0.0.1:%s%s" % (p.port or 8554, p.path)
-        out = subprocess.run(
-            ["ffmpeg", "-nostdin", "-rtsp_transport", "tcp", "-i", internal,
-             "-frames:v", "1", "-q:v", "6", "-f", "mjpeg", "pipe:1"],
-            capture_output=True, timeout=8).stdout
-        if out:
-            _snap_cache[node] = (time.time(), out)
-            return out
-    except Exception:
-        pass
-    finally:
-        lock.release()
-    return cached
+    _feed_last[node] = time.time()
+    t = _feeders.get(node)
+    if t is None or not t.is_alive():
+        t = threading.Thread(target=_mjpeg_feeder, args=(node, url), daemon=True)
+        _feeders[node] = t
+        t.start()
+    return (_snap_cache.get(node) or (0, None))[1]
 
 
 # --------------------------- HTTP: dashboard + tiny API ---------------------------
@@ -617,7 +642,7 @@ function enterFS(node){
   if(fs.requestFullscreen) fs.requestFullscreen().catch(()=>{});
   if(fsTimer) clearInterval(fsTimer);
   fsTimer=setInterval(()=>{ const im=new Image(); im.onload=()=>{v.src=im.src};
-    im.src=B+'/api/snapshot?node='+encodeURIComponent(node)+'&t='+Date.now(); },300);
+    im.src=B+'/api/snapshot?node='+encodeURIComponent(node)+'&t='+Date.now(); },120);
 }
 function toggleFsControls(){ document.getElementById('fs').classList.toggle('hidectl'); }
 function exitFS(){
@@ -802,7 +827,7 @@ function previewLoop(){
 }
 fetch(B+'/api/account').then(r=>r.json()).then(a=>{ if(a.email) document.getElementById('acct').textContent=' · '+a.email; }).catch(()=>{});
 refresh(); setInterval(refresh, 4000);
-previewLoop(); setInterval(previewLoop, 900);
+previewLoop(); setInterval(previewLoop, 250);
 </script></body></html>"""
 
 

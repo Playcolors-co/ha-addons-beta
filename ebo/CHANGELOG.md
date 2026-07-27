@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.26.10 — low-latency panel preview (persistent MJPEG feeder)
+- The panel preview used to spawn a fresh ffmpeg per frame (reconnecting to RTSP each time → ~2 fps,
+  laggy). Now a **single persistent ffmpeg** keeps the latest frame in memory, so snapshots are
+  instant and the preview runs ~10-15 fps at low latency (much better for driving). The feeder
+  auto-stops when nobody's watching. Fullscreen refresh 120 ms, list/detail 250 ms.
+
+
 ## 0.26.9 — CRITICAL FIX: no commands worked in native mode (missing subscriptions)
 - The bridge's **command topic subscriptions** were located AFTER the `expose_mqtt` gate inside the
   discovery method. Since native mode (the default since 0.26.0) sets `expose_mqtt: off`, that method
