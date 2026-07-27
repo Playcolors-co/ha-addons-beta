@@ -142,6 +142,9 @@ class Bridge:
         self.vec = {"lx": 0, "ly": 0, "rx": 0, "ry": 0, "buttons": 0}
         self.vec_deadline = 0.0
         self.lock = threading.Lock()
+        self._rtm_lock = threading.Lock()   # serialize rtm.publish() — the SDK is NOT thread-safe,
+        #   and concurrent sends (heartbeat loop + move loop + command handler) corrupt the RTM
+        #   connection, degrading dispatch to seconds. All sends go through this lock.
         self.stop = threading.Event()
 
         self.rtm = None
@@ -777,11 +780,12 @@ class Bridge:
             msg["data"] = data
         payload = json.dumps(msg, separators=(",", ":")).encode()
         t0 = time.perf_counter()
-        try:
-            r, _ = self.rtm.publish(self.s["robot_rtm"], payload, self._opts())
-        except Exception as e:
-            log("[!] publish %s error: %s" % (mid, e))
-            return
+        with self._rtm_lock:                 # serialize: the Agora RTM SDK is not thread-safe
+            try:
+                r, _ = self.rtm.publish(self.s["robot_rtm"], payload, self._opts())
+            except Exception as e:
+                log("[!] publish %s error: %s" % (mid, e))
+                return
         # The LOCAL cost of dispatching a command (what MQTT-vs-native would change) — normally a
         # few ms. The rest of the perceived lag is the Agora CLOUD round-trip, which no transport
         # choice can remove. Only log when the local part is unexpectedly slow, to keep it honest.

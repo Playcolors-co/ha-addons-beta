@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.26.7 — FIX: commands stop working after a while (RTM thread-safety)
+- The Agora RTM `publish()` was called from several threads (heartbeat loop, movement loop, command
+  handler) **without a lock**. The SDK is not thread-safe, so concurrent sends corrupted the
+  connection — dispatch latency crept to **several seconds** and the robot dropped the control
+  session (laser/move/etc. stopped responding, needing an add-on restart). All RTM sends are now
+  **serialized through a lock**, keeping the link healthy.
+
+
 ## 0.26.6 — keyboard driving, quieter logs, log level in Configuration
 - **Fullscreen keyboard driving:** arrow keys (or WASD) drive the robot while in the fullscreen
   gamepad — hold to move, release to stop.
