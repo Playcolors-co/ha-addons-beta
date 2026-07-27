@@ -271,63 +271,39 @@ def _remove_robot(node):
 
 
 # --------------------------- live preview: one JPEG from RTSP ---------------------------
-_feeders = {}      # node -> feeder thread
-_feed_last = {}    # node -> time of the last snapshot request (feeder stops when idle)
-
-
-def _mjpeg_feeder(node, url):
-    """One persistent ffmpeg per node: RTSP -> MJPEG, keep the LATEST frame in _snap_cache so
-    /api/snapshot answers instantly (low latency, ~10-15 fps). Auto-stops when nobody's watching."""
-    p = urlparse(url)
-    internal = "rtsp://127.0.0.1:%s%s" % (p.port or 8554, p.path)
-    while time.time() - _feed_last.get(node, 0) < 15:
-        proc = None
-        try:
-            proc = subprocess.Popen(
-                ["ffmpeg", "-nostdin", "-loglevel", "error", "-fflags", "nobuffer",
-                 "-flags", "low_delay", "-rtsp_transport", "tcp", "-i", internal,
-                 "-an", "-f", "mjpeg", "-q:v", "6", "pipe:1"],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-            buf = b""
-            while time.time() - _feed_last.get(node, 0) < 15:
-                chunk = proc.stdout.read(65536)
-                if not chunk:
-                    break
-                buf += chunk
-                end = buf.rfind(b"\xff\xd9")                 # last complete JPEG (SOI..EOI)
-                if end != -1:
-                    start = buf.rfind(b"\xff\xd8", 0, end)
-                    if start != -1:
-                        _snap_cache[node] = (time.time(), buf[start:end + 2])
-                        buf = buf[end + 2:]
-                if len(buf) > 4_000_000:
-                    buf = buf[-1_000_000:]
-        except Exception:
-            pass
-        finally:
-            if proc:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-        if time.time() - _feed_last.get(node, 0) < 15:
-            time.sleep(2)     # ffmpeg died (camera off?) — retry while someone's watching
-    _feeders.pop(node, None)
-
-
 def _snapshot(node):
     with _lock:
         r = _robots.get(node)
         url = r and r.get("rtsp")
     if not url:
         return None
-    _feed_last[node] = time.time()
-    t = _feeders.get(node)
-    if t is None or not t.is_alive():
-        t = threading.Thread(target=_mjpeg_feeder, args=(node, url), daemon=True)
-        _feeders[node] = t
-        t.start()
-    return (_snap_cache.get(node) or (0, None))[1]
+    now = time.time()
+    ts, cached = _snap_cache.get(node, (0, None))
+    if cached and now - ts < 0.25:          # short cache: keep frames FRESH (low latency > fps)
+        return cached
+    lock = _snap_lock.setdefault(node, threading.Lock())
+    if not lock.acquire(blocking=False):    # one grab per node at a time (no ffmpeg pile-up)
+        return cached
+    try:
+        ts, cached = _snap_cache.get(node, (0, None))
+        if cached and time.time() - ts < 0.25:
+            return cached
+        p = urlparse(url)
+        internal = "rtsp://127.0.0.1:%s%s" % (p.port or 8554, p.path)
+        # grab the FRESHEST frame with minimal buffering: no probe/analyze delay, no jitter buffer.
+        out = subprocess.run(
+            ["ffmpeg", "-nostdin", "-fflags", "nobuffer", "-flags", "low_delay",
+             "-probesize", "32", "-analyzeduration", "0", "-rtsp_transport", "tcp",
+             "-i", internal, "-frames:v", "1", "-q:v", "6", "-f", "mjpeg", "pipe:1"],
+            capture_output=True, timeout=8).stdout
+        if out:
+            _snap_cache[node] = (time.time(), out)
+            return out
+    except Exception:
+        pass
+    finally:
+        lock.release()
+    return cached
 
 
 # --------------------------- HTTP: dashboard + tiny API ---------------------------
@@ -541,7 +517,7 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 </header>
 <div id="view"></div>
 
-<div id="fs">
+<div id="fs" tabindex="0">
   <img id="fsvid" class="prev" data-node="" onclick="toggleFsControls()">
   <button class="fsx" onclick="exitFS()">✕</button>
   <div class="fs-pad" id="fs-pad"></div>
@@ -597,9 +573,9 @@ function meta(r){const st=r.state||{};
   return `${r.model||'EBO'} · 🔋 ${bat} · 📶 ${wifi}`;}
 function thumb(n){return `${B}/api/snapshot?node=${encodeURIComponent(n)}&t=${Math.floor(Date.now()/4000)}`}
 function bg(node,suffix,payload){ fetch(B+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node,suffix,payload})}).catch(()=>{}); }
-function openRobot(n){ SEL=n; render(true); bg(n,'wake',''); }          // wake on enter
+function openRobot(n){ SEL=n; render(true); bg(n,'camera/set','on'); bg(n,'wake',''); }  // connect+wake like the app
 function goBack(){ const p=SEL; SEL=null; render(true); if(p) bg(p,'sleep/set','on'); }  // standby on exit
-function driveNow(n){ SEL=n; render(true); bg(n,'wake',''); setTimeout(()=>enterFS(n),60); }
+function driveNow(n){ SEL=n; render(true); bg(n,'camera/set','on'); bg(n,'wake',''); setTimeout(()=>enterFS(n),60); }
 
 // --- driving: hold a D-pad button to move, release to stop (analog vector + watchdog) ---
 let driveSpeed=60, moveNode=null, moveTimer=null;
@@ -633,20 +609,26 @@ function fsActions(node){
   const b=(s,p,t)=>`<button class="btn" onclick="cmd('${node}','${s}','${p}')">${t}</button>`;
   return b('camera/set','on','📷 Camera')+b('wake','','☀ Wake')+b('laser/set','on','• Laser')+b('dock','','⌂ Dock')+b('sleep/set','on','🌙 Standby');
 }
+let wakeTimer=null;
 function enterFS(node){
   document.getElementById('fs-pad').innerHTML=dpad(node);
   document.getElementById('fs-act').innerHTML=fsActions(node);
   const v=document.getElementById('fsvid'); v.setAttribute('data-node',node);
   document.getElementById('fs-sp').value=driveSpeed;
   const fs=document.getElementById('fs'); fs.classList.remove('hidectl'); fs.style.display='block';
-  if(fs.requestFullscreen) fs.requestFullscreen().catch(()=>{});
+  fs.focus();                                       // keyboard focus so the arrow keys reach us
+  bg(node,'camera/set','on'); bg(node,'wake','');   // connect + wake (like opening the app)
+  if(fs.requestFullscreen) fs.requestFullscreen().then(()=>fs.focus()).catch(()=>{});
   if(fsTimer) clearInterval(fsTimer);
   fsTimer=setInterval(()=>{ const im=new Image(); im.onload=()=>{v.src=im.src};
-    im.src=B+'/api/snapshot?node='+encodeURIComponent(node)+'&t='+Date.now(); },120);
+    im.src=B+'/api/snapshot?node='+encodeURIComponent(node)+'&t='+Date.now(); },250);
+  if(wakeTimer) clearInterval(wakeTimer);
+  wakeTimer=setInterval(()=>bg(node,'wake',''),15000);   // keep the robot awake while driving
 }
 function toggleFsControls(){ document.getElementById('fs').classList.toggle('hidectl'); }
 function exitFS(){
   stopMove(); if(fsTimer){clearInterval(fsTimer);fsTimer=null;}
+  if(wakeTimer){clearInterval(wakeTimer);wakeTimer=null;}
   document.getElementById('fs').style.display='none';
   if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
 }
@@ -827,7 +809,7 @@ function previewLoop(){
 }
 fetch(B+'/api/account').then(r=>r.json()).then(a=>{ if(a.email) document.getElementById('acct').textContent=' · '+a.email; }).catch(()=>{});
 refresh(); setInterval(refresh, 4000);
-previewLoop(); setInterval(previewLoop, 250);
+previewLoop(); setInterval(previewLoop, 300);
 </script></body></html>"""
 
 

@@ -82,7 +82,7 @@ class VideoPipeline(IVideoFrameObserver):
     # ---- ffmpeg: raw I420 in -> H.264 RTSP out ----
     def _start_ffmpeg(self, w, h):
         self._stop_ffmpeg()
-        gop = max(self.fps, 1) * 2       # a keyframe every ~2s so clients attach quickly
+        gop = max(self.fps, 1)           # a keyframe every ~1s: clients (snapshots) get fresh frames
         scale = []
         if self.max_h and h > self.max_h:
             scale = ["-vf", "scale=-2:%d" % self.max_h]   # keep aspect, even width
