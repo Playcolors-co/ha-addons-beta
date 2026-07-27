@@ -811,6 +811,10 @@ class Bridge:
             self.rtm = None
             self.rtc = None
             self._observers_registered = False
+            # Standby stops the video too — reflect it so Home Assistant shows a clear change
+            # (otherwise the camera switch stays "on" and it looks like nothing happened).
+            self.video_on = False
+            self._publish_camera_state()
         self._publish_conn_state()
 
     def _publish_conn_state(self):
