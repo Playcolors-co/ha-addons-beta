@@ -841,6 +841,7 @@ async function fsPlay(node){
   }
   if(open()){ _fsStatus(null); _fsBadge('HLS (ripiego)'); console.log('[ebo] WHEP unavailable → HLS fallback'); hlsPlay(node); }
 }
+let _driveVQ=null;   // video quality saved on entering drive, restored on exit
 function enterFS(node){
   document.getElementById('fs-pad').innerHTML=dpad(node);
   document.getElementById('fs-act').innerHTML=fsActions(node);
@@ -850,7 +851,14 @@ function enterFS(node){
   const fs=document.getElementById('fs'); fs.classList.remove('hidectl'); fs.style.display='block';
   fs.focus();                                       // keyboard focus so the arrow keys reach us
   bg(node,'camera/set','on');                       // join RTC + feed = wake (like opening the app)
-  setTimeout(()=>fsPlay(node),400);                 // give the camera a moment, then play HLS
+  // FLUID DRIVING: force a low resolution while driving. The robot's High mode is 2304×1296 (3 MP),
+  // which our real-time H.265→H.264 re-encode can't keep up with — frames pile up and the video lags
+  // by SECONDS. At Low (848×480) the encoder keeps up → smooth ~20 fps at ~200 ms. We save the
+  // previous quality and restore it on exit (so still-viewing keeps your chosen quality).
+  const r=ROBOTS.find(x=>x.node===node);
+  _driveVQ=(r&&r.state&&r.state.video_quality)||null;
+  if(_driveVQ && _driveVQ!=='Low') bg(node,'video_quality/set','Low');
+  setTimeout(()=>fsPlay(node),400);                 // give the camera a moment, then play
   if(fs.requestFullscreen) fs.requestFullscreen().then(()=>fs.focus()).catch(()=>{});
   if(wakeTimer) clearInterval(wakeTimer);
   // keep-alive while driving: re-assert the camera/RTC session so the robot can't drift to standby
@@ -861,6 +869,9 @@ function exitFS(){
   stopMove(); if(fsTimer){clearInterval(fsTimer);fsTimer=null;}
   if(wakeTimer){clearInterval(wakeTimer);wakeTimer=null;}
   const v=document.getElementById('fsvid');
+  const node=v.getAttribute('data-node');
+  if(_driveVQ && _driveVQ!=='Low' && node) bg(node,'video_quality/set',_driveVQ);   // restore quality
+  _driveVQ=null;
   _cleanupVid(v);                                      // stop WebRTC + HLS
   document.getElementById('fs').style.display='none';
   if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
