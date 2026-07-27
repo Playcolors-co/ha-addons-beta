@@ -68,6 +68,9 @@ class VideoPipeline(IVideoFrameObserver):
         self._pending_evt = threading.Event()
         self._writer = None
         self._dropped = 0
+        self._src_count = 0           # source/encoded frame counters for the fps diagnostic
+        self._enc_count = 0
+        self._src_t0 = 0.0
         self.feeding = False          # only pipe to ffmpeg while the camera switch is on
         self.lock = threading.Lock()
         self._start_mediamtx()
@@ -295,12 +298,22 @@ class VideoPipeline(IVideoFrameObserver):
                     self._dec_acc = 0
                     self._pending = None
                     self._ensure_writer()
-                elif self.fps < self.src_fps:
-                    # decimate: keep ~fps of every src_fps source frames (cuts encode CPU)
-                    self._dec_acc += self.fps
-                    if self._dec_acc < self.src_fps:
-                        return 0                     # drop this frame
-                    self._dec_acc -= self.src_fps
+                # NOTE: no fixed frame decimation. At a sane resolution the encoder keeps up, so we
+                # want EVERY source frame for smoothness; the 1-slot buffer already drops frames only
+                # when the encoder actually falls behind (adaptive). Fixed decimation just threw away
+                # good frames and made the video choppier than the source.
+                self._src_count += 1              # every decoded frame (source rate diagnostic)
+                now = time.time()
+                if self._src_t0 == 0.0:
+                    self._src_t0 = now
+                elif now - self._src_t0 >= 5.0:
+                    log("[video] source ~%.1f fps, encoded ~%.1f fps, %d dropped (encoder behind)"
+                        % (self._src_count / (now - self._src_t0),
+                           self._enc_count / (now - self._src_t0), self._dropped))
+                    self._src_t0 = now
+                    self._src_count = 0
+                    self._enc_count = 0
+                    self._dropped = 0
                 # If the writer thread hasn't consumed the previous frame yet, ffmpeg is still busy —
                 # DROP this frame *before* the expensive plane copy (packing a 3 MP frame just to
                 # overwrite it wastes the very CPU ffmpeg needs). Dropping early keeps latency bounded
@@ -313,6 +326,7 @@ class VideoPipeline(IVideoFrameObserver):
                 u = _pack_plane(frame.u_buffer, frame.u_stride or (w // 2), w // 2, h // 2)
                 v = _pack_plane(frame.v_buffer, frame.v_stride or (w // 2), w // 2, h // 2)
                 self._pending = (y, u, v, w, h)
+                self._enc_count += 1
                 self.frames += 1
                 self._last_frame = time.time()
                 first = self.frames == 1
