@@ -649,6 +649,10 @@ function meta(r){const st=r.state||{};
   return `${r.model||'EBO'} · 🔋 ${bat} · 📶 ${wifi}`;}
 function thumb(n){return `${B}/api/snapshot?node=${encodeURIComponent(n)}&t=${Math.floor(Date.now()/4000)}`}
 function bg(node,suffix,payload){ fetch(B+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node,suffix,payload})}).catch(()=>{}); }
+// Laser is a TOGGLE: the robot reports its state (state.laser), so read it at click time and send
+// the opposite. Sending 'on' unconditionally (the old behaviour) could never turn it off.
+function laserOn(node){ const r=ROBOTS.find(x=>x.node===node); return !!(r&&r.state&&(r.state.laser==='true'||r.state.laser===true)); }
+function toggleLaser(node){ cmd(node,'laser/set', laserOn(node)?'off':'on'); }
 // Enter detail/drive → camera/set on. Bridge-side this JOINS the Agora RTC channel, which WAKES
 // the robot exactly like opening the app (real viewer present). goBack → connected/set off leaves
 // the channel so the robot goes back to standby (ZZ). No unreliable isSleeping opcode dance.
@@ -706,7 +710,9 @@ function dpad(node){
 let fsTimer=null;
 function fsActions(node){
   const b=(s,p,t)=>`<button class="btn" onclick="cmd('${node}','${s}','${p}')">${t}</button>`;
-  return b('camera/set','on','☀ Wake')+b('laser/set','on','• Laser')+b('dock','','⌂ Dock')+b('connected/set','off','🌙 Standby');
+  return b('camera/set','on','☀ Wake')
+       + `<button class="btn" onclick="toggleLaser('${node}')">• Laser</button>`   // toggle on/off
+       + b('dock','','⌂ Dock')+b('connected/set','off','🌙 Standby');
 }
 let wakeTimer=null;
 // Fluid video: the add-on's Low-Latency HLS, played in a <video> via hls.js, PROXIED through
@@ -919,7 +925,7 @@ function detailView(r){
       <button id="d-cam" class="btn ${cam?'pri':''}" onclick="cmd('${r.node}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
       <button class="btn" onclick="cmd('${r.node}','camera/set','on')">☀ Wake</button>
       <button class="btn" onclick="cmd('${r.node}','connected/set','off')">🌙 Standby</button>
-      <button class="btn" onclick="cmd('${r.node}','laser/set','on')">Laser</button>
+      <button class="btn ${st.laser==='true'?'pri':''}" onclick="toggleLaser('${r.node}')">Laser ${st.laser==='true'?'ON':'OFF'}</button>
       <button class="btn" onclick="cmd('${r.node}','dock','')">Dock</button>
     </div>
     <div class="sec"><h4>Drive</h4>
