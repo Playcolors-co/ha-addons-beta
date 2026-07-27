@@ -16,6 +16,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -395,18 +396,24 @@ class Handler(BaseHTTPRequestHandler):
         req = urllib.request.Request(url, data=offer, method="POST")
         req.add_header("Content-Type", "application/sdp")
         try:
-            with urllib.request.urlopen(req, timeout=15) as r:
-                answer = r.read()
-                ctype = r.headers.get("Content-Type", "application/sdp")
-            self.send_response(200)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(answer)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(answer)
+            r = urllib.request.urlopen(req, timeout=15)
+            status, answer, ctype = r.getcode(), r.read(), \
+                r.headers.get("Content-Type", "application/sdp")
+        except urllib.error.HTTPError as e:
+            # mediamtx returns 4xx for a bad/rejected offer — relay its real status+body, not a 502,
+            # so the browser can see the actual error instead of a generic proxy failure.
+            status, answer = e.code, e.read()
+            ctype = e.headers.get("Content-Type", "text/plain")
         except Exception as e:
             log("[whep] proxy failed:", e)
-            self._send(502, b"", "text/plain")
+            return self._send(502, b"", "text/plain")
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(answer)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")   # harmless; same-origin in the panel
+        self.end_headers()
+        self.wfile.write(answer)
 
     def _mjpeg(self, node):
         """Stream a live MJPEG preview (multipart) from the robot's RTSP — smooth, no flicker."""
