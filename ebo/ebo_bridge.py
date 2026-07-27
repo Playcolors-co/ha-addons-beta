@@ -786,9 +786,9 @@ class Bridge:
         # few ms. The rest of the perceived lag is the Agora CLOUD round-trip, which no transport
         # choice can remove. Only log when the local part is unexpectedly slow, to keep it honest.
         dt = (time.perf_counter() - t0) * 1000.0
-        if dt > 25:
-            log("[timing] local RTM dispatch of cmd %s took %.0f ms "
-                "(cloud round-trip is separate)" % (mid, dt))
+        if dt > 2000:   # only when genuinely slow (RTM degrading) — not normal per-command jitter
+            log("[timing] ⚠ slow RTM dispatch of cmd %s: %.0f ms — the cloud link is degrading"
+                % (mid, dt))
         if r != 0:
             log("[!] publish %s failed: %s" % (mid, self.rtm.get_error_reason(r)))
 

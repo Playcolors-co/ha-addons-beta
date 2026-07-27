@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.26.6 — keyboard driving, quieter logs, log level in Configuration
+- **Fullscreen keyboard driving:** arrow keys (or WASD) drive the robot while in the fullscreen
+  gamepad — hold to move, release to stop.
+- **Quieter logs:** the per-command timing line now only appears when the cloud link is genuinely
+  slow (>2s), instead of every couple of seconds — so a healthy add-on log is calm.
+- **Log level** is back in the add-on **Configuration** tab (`log_level`: info/debug/warning).
+
+
 ## 0.26.5 — panel driving UX: wake-on-open, feedback, fullscreen toggles, charging notice
 - **Wake on open, standby on leave:** opening a robot in the panel wakes it; going back puts it in
   standby. (A robot **on the charger won't drive** — the detail page now shows a clear notice.)

@@ -63,8 +63,7 @@ EDITABLE_OPTS = {
                      "choices": ["ultrafast", "superfast", "veryfast", "faster", "fast"],
                      "default": "ultrafast", "label": "Video encoder preset"},
     "audio_codec": {"type": "select", "choices": [8, 9], "default": 8, "label": "Audio codec"},
-    "log_level": {"type": "select", "choices": ["debug", "info", "warning"], "default": "info",
-                  "label": "Log level"},
+    # log_level lives in the add-on Configuration tab now (not here).
     "region": {"type": "text", "default": "GB", "label": "Account region"},
     "host": {"type": "text", "default": "ebox-eu.enabotserverintl.com",
              "label": "Account server host"},
@@ -626,7 +625,21 @@ function exitFS(){
   document.getElementById('fs').style.display='none';
   if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
 }
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&document.getElementById('fs').style.display==='block') exitFS(); });
+// keyboard driving in fullscreen: arrow keys (or WASD) hold-to-move, Esc exits
+const KEYDIR={ArrowUp:'fwd',ArrowDown:'back',ArrowLeft:'left',ArrowRight:'right',w:'fwd',s:'back',a:'left',d:'right'};
+let keyDir=null;
+document.addEventListener('keydown',e=>{
+  const open=document.getElementById('fs').style.display==='block';
+  if(e.key==='Escape'&&open){ exitFS(); return; }
+  if(!open) return;
+  const dir=KEYDIR[e.key]; if(!dir) return;
+  e.preventDefault();
+  if(keyDir===dir) return;                       // ignore auto-repeat
+  keyDir=dir; startMove(document.getElementById('fsvid').getAttribute('data-node'),dir);
+});
+document.addEventListener('keyup',e=>{
+  if(KEYDIR[e.key] && keyDir){ e.preventDefault(); keyDir=null; stopMove(); }
+});
 
 function listView(){
   if(!ROBOTS.length) return `<div class="empty">Waiting for robots… make sure the add-on is running.</div>`;
