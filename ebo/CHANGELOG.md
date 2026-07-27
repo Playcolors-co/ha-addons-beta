@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.26.8 — FIX: commands stop reaching the robot (blocking sends on the receive thread)
+- Root cause of "nothing responds after a while": `rtm.publish()` ran **synchronously on the MQTT
+  receive thread**. When a cloud send got slow, it blocked that thread, so no further command was
+  ever delivered to the robot — it looked totally dead until an add-on restart. Now **all sends go
+  through a single dedicated sender thread via a queue**; the receive/control loops only enqueue and
+  never block, and the SDK is never called concurrently. (Replaces the 0.26.7 lock, which serialized
+  but still blocked the receive thread.)
+
+
 ## 0.26.7 — FIX: commands stop working after a while (RTM thread-safety)
 - The Agora RTM `publish()` was called from several threads (heartbeat loop, movement loop, command
   handler) **without a lock**. The SDK is not thread-safe, so concurrent sends corrupted the

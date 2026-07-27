@@ -24,6 +24,7 @@ import json
 import os
 import subprocess
 import sys
+import queue
 import threading
 import time
 
@@ -142,9 +143,10 @@ class Bridge:
         self.vec = {"lx": 0, "ly": 0, "rx": 0, "ry": 0, "buttons": 0}
         self.vec_deadline = 0.0
         self.lock = threading.Lock()
-        self._rtm_lock = threading.Lock()   # serialize rtm.publish() — the SDK is NOT thread-safe,
-        #   and concurrent sends (heartbeat loop + move loop + command handler) corrupt the RTM
-        #   connection, degrading dispatch to seconds. All sends go through this lock.
+        # ALL RTM sends go through one sender thread (see _sender_loop): callers only enqueue.
+        # The Agora SDK is not thread-safe, and — crucially — a slow cloud send must never run on
+        # the MQTT receive thread, or it blocks delivery of every following command.
+        self._send_q = queue.Queue(maxsize=256)
         self.stop = threading.Event()
 
         self.rtm = None
@@ -771,6 +773,8 @@ class Bridge:
         )
 
     def send(self, mid, data=None):
+        """Build the message and ENQUEUE it — never touches the SDK directly, so a slow cloud send
+        can't block the caller (MQTT receive thread, control loop…). _sender_loop does the publish."""
         if not (self.connected and self.rtm):   # the "connected" switch is off
             return
         msg = {"id": mid, "type": 0, "timestamp": time.time() * 1000}
@@ -779,22 +783,35 @@ class Bridge:
         if data is not None:
             msg["data"] = data
         payload = json.dumps(msg, separators=(",", ":")).encode()
-        t0 = time.perf_counter()
-        with self._rtm_lock:                 # serialize: the Agora RTM SDK is not thread-safe
+        try:
+            self._send_q.put_nowait((mid, payload))
+        except queue.Full:
+            pass   # under backpressure drop the stale command (the move watchdog keeps it safe)
+
+    def _sender_loop(self):
+        """The ONLY thread that calls rtm.publish(): serializes every send (the SDK is not
+        thread-safe) and keeps slow cloud sends off the receive/control threads, so one slow send
+        never stalls command delivery."""
+        while not self.stop.is_set():
             try:
-                r, _ = self.rtm.publish(self.s["robot_rtm"], payload, self._opts())
+                mid, payload = self._send_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            rtm = self.rtm
+            if not rtm:
+                continue
+            t0 = time.perf_counter()
+            try:
+                r, _ = rtm.publish(self.s["robot_rtm"], payload, self._opts())
             except Exception as e:
                 log("[!] publish %s error: %s" % (mid, e))
-                return
-        # The LOCAL cost of dispatching a command (what MQTT-vs-native would change) — normally a
-        # few ms. The rest of the perceived lag is the Agora CLOUD round-trip, which no transport
-        # choice can remove. Only log when the local part is unexpectedly slow, to keep it honest.
-        dt = (time.perf_counter() - t0) * 1000.0
-        if dt > 2000:   # only when genuinely slow (RTM degrading) — not normal per-command jitter
-            log("[timing] ⚠ slow RTM dispatch of cmd %s: %.0f ms — the cloud link is degrading"
-                % (mid, dt))
-        if r != 0:
-            log("[!] publish %s failed: %s" % (mid, self.rtm.get_error_reason(r)))
+                continue
+            dt = (time.perf_counter() - t0) * 1000.0
+            if dt > 2000:   # only when genuinely slow (cloud degrading) — not normal jitter
+                log("[timing] ⚠ slow RTM dispatch of cmd %s: %.0f ms — the cloud link is degrading"
+                    % (mid, dt))
+            if r != 0:
+                log("[!] publish %s failed: %s" % (mid, rtm.get_error_reason(r)))
 
     def _on_rtm(self, event):
         try:
@@ -1514,6 +1531,7 @@ class Bridge:
         self._install_signals()
         self.connect_mqtt()       # MQTT first so telemetry has somewhere to go
         self.connect_agora()
+        threading.Thread(target=self._sender_loop, daemon=True).start()   # single RTM sender
         threading.Thread(target=self.control_loop, daemon=True).start()
         self.send(OP_HANDSHAKE, {"userId": self.account})
         time.sleep(1)
