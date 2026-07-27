@@ -151,8 +151,9 @@ class VideoPipeline(IVideoFrameObserver):
                         "-ar", str(self.audio_rate), "-ac", "1", "-i", "pipe:%d" % a_r]
             audio_out = ["-c:a", "aac", "-b:a", "48k"]
             pass_fds = (a_r,)
+        _nullout = True   # DIAG BUILD: encode to null (isolate mediamtx) — REVERT AFTER MEASURING
         self.ff = subprocess.Popen([
-            "ffmpeg", "-hide_banner", "-loglevel", "warning", "-stats", "-stats_period", "2",
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
             # low latency: timestamp frames by arrival (clean monotonic DTS/PTS — fixes the
             # "No dts" issue) and DON'T resample the frame rate (forcing CFR buffered/dropped
             # frames and added delay). The robot streams ~25 fps.
@@ -174,8 +175,11 @@ class VideoPipeline(IVideoFrameObserver):
             # forces per-packet writes that stall ffmpeg's output and starve the encoder (throughput
             # collapsed to ~5 fps). muxdelay/muxpreload 0 is enough.
             "-muxdelay", "0", "-muxpreload", "0",
-            "-f", "rtsp", "-rtsp_transport", "tcp", self.rtsp_url,
-        ], stdin=subprocess.PIPE, pass_fds=pass_fds)
+        ] + (["-f", "null", "-"] if _nullout else
+             ["-f", "rtsp", "-rtsp_transport", "tcp", self.rtsp_url]),
+            stdin=subprocess.PIPE, pass_fds=pass_fds)
+        if _nullout:
+            log("[video] DIAG: ffmpeg output = NULL (mediamtx bypassed)")
         if a_r is not None:
             os.close(a_r)             # parent drops the read end (ffmpeg owns it)
             os.set_blocking(self._a_w, False)   # never block the SDK audio thread
