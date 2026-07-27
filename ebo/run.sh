@@ -146,10 +146,13 @@ else
 fi
 
 # --- install the companion integration into Home Assistant (no HACS) ---
-# The image bundles it; copy it into /homeassistant/custom_components/ebo so HA can load it. A new
+# The image bundles it; copy it into <ha-config>/custom_components/ebo so HA can load it. A new
 # custom component needs ONE Home Assistant restart to be picked up (logged for the user).
-HA_CC="/homeassistant/custom_components"
-if [ -d /app/ha_integration/custom_components/ebo ] && [ -d /homeassistant ]; then
+# The config dir is mounted at /homeassistant (homeassistant_config map) or /config on older setups.
+HA_ROOT=""
+for d in /homeassistant /config; do [ -d "$d" ] && { HA_ROOT="$d"; break; }; done
+HA_CC="$HA_ROOT/custom_components"
+if [ -d /app/ha_integration/custom_components/ebo ] && [ -n "$HA_ROOT" ]; then
   mkdir -p "$HA_CC"
   if cp -r /app/ha_integration/custom_components/ebo "$HA_CC/ebo.tmp" 2>/dev/null; then
     rm -rf "$HA_CC/ebo" && mv "$HA_CC/ebo.tmp" "$HA_CC/ebo"
