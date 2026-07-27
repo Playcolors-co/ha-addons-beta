@@ -170,9 +170,10 @@ class VideoPipeline(IVideoFrameObserver):
             ["-maxrate", "%dk" % self.bitrate, "-bufsize", "%dk" % (self.bitrate * 2)]
             if self.bitrate > 0 else []
         ) + audio_out + [
-            # minimal muxer buffering (flush every packet, no interleave/mux delay) so the RTSP
-            # output — and everything mediamtx serves downstream — stays as low-latency as possible.
-            "-muxdelay", "0", "-muxpreload", "0", "-flush_packets", "1",
+            # low muxer delay for latency. NB: do NOT add -flush_packets 1 here — over RTSP/TCP it
+            # forces per-packet writes that stall ffmpeg's output and starve the encoder (throughput
+            # collapsed to ~5 fps). muxdelay/muxpreload 0 is enough.
+            "-muxdelay", "0", "-muxpreload", "0",
             "-f", "rtsp", "-rtsp_transport", "tcp", self.rtsp_url,
         ], stdin=subprocess.PIPE, pass_fds=pass_fds)
         if a_r is not None:
