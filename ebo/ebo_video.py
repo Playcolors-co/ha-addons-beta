@@ -301,13 +301,17 @@ class VideoPipeline(IVideoFrameObserver):
                     if self._dec_acc < self.src_fps:
                         return 0                     # drop this frame
                     self._dec_acc -= self.src_fps
+                # If the writer thread hasn't consumed the previous frame yet, ffmpeg is still busy —
+                # DROP this frame *before* the expensive plane copy (packing a 3 MP frame just to
+                # overwrite it wastes the very CPU ffmpeg needs). Dropping early keeps latency bounded
+                # AND frees CPU for the encoder, so the frames we DO keep encode faster.
+                if self._pending is not None:
+                    self._dropped += 1
+                    self._last_frame = time.time()   # still a live frame → robot is awake
+                    return 0
                 y = _pack_plane(frame.y_buffer, frame.y_stride or w, w, h)
                 u = _pack_plane(frame.u_buffer, frame.u_stride or (w // 2), w // 2, h // 2)
                 v = _pack_plane(frame.v_buffer, frame.v_stride or (w // 2), w // 2, h // 2)
-                # hand off to the writer thread. Overwriting a not-yet-encoded frame = we DROP it
-                # (bounded latency). The writer picks up only the freshest one.
-                if self._pending is not None:
-                    self._dropped += 1
                 self._pending = (y, u, v, w, h)
                 self.frames += 1
                 self._last_frame = time.time()
