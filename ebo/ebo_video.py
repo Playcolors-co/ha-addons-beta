@@ -132,7 +132,7 @@ class VideoPipeline(IVideoFrameObserver):
     # ---- ffmpeg: raw I420 in -> H.264 RTSP out ----
     def _start_ffmpeg(self, w, h):
         self._stop_ffmpeg()
-        gop = max(self.fps, 1)           # a keyframe every ~1s: clients (snapshots) get fresh frames
+        gop = max(self.src_fps, 1)       # a keyframe every ~1s at the source rate
         scale = []
         if self.max_h and h > self.max_h:
             scale = ["-vf", "scale=-2:%d" % self.max_h]   # keep aspect, even width
@@ -151,16 +151,17 @@ class VideoPipeline(IVideoFrameObserver):
                         "-ar", str(self.audio_rate), "-ac", "1", "-i", "pipe:%d" % a_r]
             audio_out = ["-c:a", "aac", "-b:a", "48k"]
             pass_fds = (a_r,)
-        _nullout = True   # DIAG BUILD: encode to null (isolate mediamtx) — REVERT AFTER MEASURING
+        _nullout = os.environ.get("EBO_VIDEO_NULLOUT") == "1"   # DIAG: encode to null (isolate mediamtx)
         self.ff = subprocess.Popen([
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             # low latency: timestamp frames by arrival (clean monotonic DTS/PTS — fixes the
-            # "No dts" issue) and DON'T resample the frame rate (forcing CFR buffered/dropped
-            # frames and added delay). The robot streams ~25 fps.
-            "-fflags", "+genpts+nobuffer", "-flags", "+low_delay",
-            "-use_wallclock_as_timestamps", "1",
+            # Clean, MONOTONIC input timestamps from the raw framerate. Do NOT use
+            # -use_wallclock_as_timestamps: under bursty feeding it hands ffmpeg duplicate/
+            # non-monotonic DTS ("124 >= 124") that stall the encoder. rawvideo from a pipe is not
+            # throttled by -framerate — it only assigns even PTS. The robot streams ~25 fps.
+            "-fflags", "+nobuffer", "-flags", "+low_delay",
             "-f", "rawvideo", "-pixel_format", "yuv420p",
-            "-video_size", "%dx%d" % (w, h), "-framerate", str(self.fps),
+            "-video_size", "%dx%d" % (w, h), "-framerate", str(self.src_fps),
             "-i", "pipe:0",
         ] + audio_in + scale + [
             "-c:v", "libx264", "-preset", self.preset, "-tune", "zerolatency",
