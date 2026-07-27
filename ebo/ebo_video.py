@@ -68,6 +68,20 @@ class VideoPipeline(IVideoFrameObserver):
         # Low-Latency HLS for a FLUID browser preview (the snapshot path is choppy). HTTP-based, so
         # it works straight through the add-on's mapped port — no WebRTC/ICE finickiness. ~0.5-1s.
         self.hls_port = 8888 + (self.rtsp_port - 8554)
+        # WebRTC (WHEP): the panel's fullscreen 'drive' view plays this for a TRULY fluid, ~200 ms
+        # preview (much better than HLS for actually driving). The robot's H.265 is already
+        # re-encoded to H.264 here, which the browser CAN decode over WebRTC. ICE candidates use the
+        # host's real LAN IPs (below) so the browser reaches us even across NIC/VLAN boundaries.
+        self.webrtc_port = 8189 + (self.rtsp_port - 8554)
+        ice_hosts = [ip.strip() for ip in
+                     os.environ.get("EBO_HOST_IPS", "").split(",") if ip.strip()]
+        # de-dup, keep order; a YAML flow list "[a, b]" (empty -> mediamtx auto-detects interfaces)
+        seen, hosts = set(), []
+        for ip in ice_hosts:
+            if ip not in seen:
+                seen.add(ip)
+                hosts.append(ip)
+        additional_hosts = ("[" + ", ".join(hosts) + "]") if hosts else "[]"
         with open(cfg, "w") as f:
             f.write("logLevel: error\n"
                     f"rtspAddress: :{self.rtsp_port}\n"
@@ -79,9 +93,15 @@ class VideoPipeline(IVideoFrameObserver):
                     "hlsSegmentDuration: 1s\n"
                     "hlsPartDuration: 200ms\n"
                     "hlsAllowOrigin: '*'\n"
-                    "webrtc: no\n"
+                    "webrtc: yes\n"
+                    f"webrtcAddress: :{self.webrtc_port}\n"
+                    f"webrtcLocalUDPAddress: :{self.webrtc_port}\n"
+                    f"webrtcAdditionalHosts: {additional_hosts}\n"
+                    "webrtcAllowOrigin: '*'\n"
+                    "webrtcICEServers2: []\n"
                     "rtmp: no\n"
                     "paths:\n  all_others:\n")
+        log("[video] WebRTC(WHEP) on :%d — ICE hosts %s" % (self.webrtc_port, additional_hosts))
         try:
             self.mediamtx = subprocess.Popen(
                 ["/usr/local/bin/mediamtx", cfg],

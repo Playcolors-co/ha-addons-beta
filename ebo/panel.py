@@ -379,6 +379,35 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             self._send(502, b"", "text/plain")
 
+    def _proxy_whep(self, raw_path):
+        """Forward a WHEP SDP offer to the local mediamtx WebRTC endpoint and return its SDP answer.
+        Restricted to the WebRTC ports (8189-8192) so it can't be used as an open proxy."""
+        rest = raw_path.split("/whepp/", 1)[1]
+        port, _, sub = rest.partition("/")
+        if not port.isdigit() or not (8189 <= int(port) <= 8192) or not sub:
+            return self._send(400, b"", "text/plain")
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            offer = self.rfile.read(n)
+        except Exception:
+            return self._send(400, b"", "text/plain")
+        url = "http://127.0.0.1:%s/%s/whep" % (port, sub)
+        req = urllib.request.Request(url, data=offer, method="POST")
+        req.add_header("Content-Type", "application/sdp")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                answer = r.read()
+                ctype = r.headers.get("Content-Type", "application/sdp")
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(answer)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(answer)
+        except Exception as e:
+            log("[whep] proxy failed:", e)
+            self._send(502, b"", "text/plain")
+
     def _mjpeg(self, node):
         """Stream a live MJPEG preview (multipart) from the robot's RTSP — smooth, no flicker."""
         with _lock:
@@ -427,6 +456,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authed():
             return self._send(403, json.dumps({"error": "forbidden"}))
+        # WHEP (WebRTC signalling) proxy: the body is SDP, not JSON — handle before the JSON parse.
+        # /whepp/<port>/<path> -> POST http://127.0.0.1:<port>/<path>/whep. Same-origin so the panel
+        # page (behind Ingress, possibly https) never does a cross-origin/mixed-content POST.
+        raw_path = urlparse(self.path).path
+        if "/whepp/" in raw_path:
+            return self._proxy_whep(raw_path)
         path = urlparse(self.path).path.rstrip("/")
         try:
             n = int(self.headers.get("Content-Length", 0))
@@ -659,18 +694,64 @@ function hlsSrc(node){
     return B+'/hlsp/'+port+'/'+path+'/index.m3u8';
   }catch(e){ return ''; }
 }
-function fsPlay(node){
-  const v=document.getElementById('fsvid'); const src=hlsSrc(node);
+// WebRTC (WHEP): the robot's H.265 is re-encoded to H.264 by the add-on and served by mediamtx as
+// WebRTC. The browser CAN decode H.264 over WebRTC, giving ~200 ms FLUID video — the only path good
+// enough to actually drive. Signalling is proxied through Ingress (same origin); the media flows
+// browser<->host:8189 (UDP) directly. If ICE/WebRTC can't connect (odd network), we fall back to HLS.
+function _cleanupVid(v){
+  if(v._pc){ try{v._pc.close();}catch(e){} v._pc=null; }
   if(v._hls){ try{v._hls.destroy();}catch(e){} v._hls=null; }
+  try{ v.srcObject=null; }catch(e){}
+  try{ v.removeAttribute('src'); v.load(); }catch(e){}
+}
+async function whepPlay(node, onConnected){
+  const r=ROBOTS.find(x=>x.node===node);
+  if(!r||!r.rtsp) return false;
+  let port, path;
+  try{ const u=new URL(r.rtsp.replace(/^rtsp:/,'http:'));
+       port=8189+(parseInt(u.port||'8554',10)-8554);
+       path=u.pathname.replace(/^\//,''); }catch(e){ return false; }
+  const v=document.getElementById('fsvid');
+  const pc=new RTCPeerConnection({iceServers:[]});
+  v._pc=pc;
+  pc.addTransceiver('video',{direction:'recvonly'});
+  pc.addTransceiver('audio',{direction:'recvonly'});
+  pc.ontrack=(e)=>{ if(e.streams&&e.streams[0]&&v.srcObject!==e.streams[0]){ v.srcObject=e.streams[0]; v.play().catch(()=>{});} };
+  pc.onconnectionstatechange=()=>{ if(pc.connectionState==='connected'&&onConnected) onConnected(); };
+  const offer=await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  // non-trickle: wait for ICE gathering to finish (or 1.5 s), then send the whole offer
+  await new Promise(res=>{ if(pc.iceGatheringState==='complete') return res();
+    const t=setTimeout(res,1500);
+    pc.addEventListener('icegatheringstatechange',()=>{ if(pc.iceGatheringState==='complete'){clearTimeout(t);res();} }); });
+  const resp=await fetch(B+'/whepp/'+port+'/'+path,{method:'POST',
+    headers:{'Content-Type':'application/sdp'}, body:pc.localDescription.sdp});
+  if(!resp.ok) throw new Error('whep http '+resp.status);
+  const answer=await resp.text();
+  await pc.setRemoteDescription({type:'answer',sdp:answer});
+  return true;
+}
+function hlsPlay(node){
+  const v=document.getElementById('fsvid'); const src=hlsSrc(node);
   if(!src) return;
   if(window.Hls && Hls.isSupported()){
     const hls=new Hls({lowLatencyMode:true, backBufferLength:4});
-    hls.on(Hls.Events.ERROR,(e,d)=>{ if(d.fatal){ try{hls.destroy();}catch(x){} setTimeout(()=>{ if(document.getElementById('fs').style.display==='block') fsPlay(node); },1500); }});
+    hls.on(Hls.Events.ERROR,(e,d)=>{ if(d.fatal){ try{hls.destroy();}catch(x){} setTimeout(()=>{ if(document.getElementById('fs').style.display==='block') hlsPlay(node); },1500); }});
     hls.loadSource(src); hls.attachMedia(v); v._hls=hls;
     v.play().catch(()=>{});
   } else if(v.canPlayType('application/vnd.apple.mpegurl')){
     v.src=src; v.play().catch(()=>{});
   }
+}
+function fsPlay(node){
+  const v=document.getElementById('fsvid');
+  _cleanupVid(v);
+  let done=false;
+  const fb=(why)=>{ if(done) return; done=true; if(v._pc){try{v._pc.close();}catch(e){}v._pc=null;} console.log('[ebo] WebRTC->HLS fallback:',why); hlsPlay(node); };
+  const wd=setTimeout(()=>fb('timeout'), 5000);      // if WebRTC isn't playing in 5 s, use HLS
+  whepPlay(node, ()=>{ done=true; clearTimeout(wd); })   // onConnected: WebRTC is up, keep it
+    .then(ok=>{ if(!ok){ clearTimeout(wd); fb('no-rtsp'); } })
+    .catch(err=>{ clearTimeout(wd); fb(err.message||err); });
 }
 function enterFS(node){
   document.getElementById('fs-pad').innerHTML=dpad(node);
@@ -692,8 +773,7 @@ function exitFS(){
   stopMove(); if(fsTimer){clearInterval(fsTimer);fsTimer=null;}
   if(wakeTimer){clearInterval(wakeTimer);wakeTimer=null;}
   const v=document.getElementById('fsvid');
-  if(v._hls){ try{v._hls.destroy();}catch(e){} v._hls=null; }
-  v.removeAttribute('src'); try{v.load();}catch(e){}   // stop the HLS video
+  _cleanupVid(v);                                      // stop WebRTC + HLS
   document.getElementById('fs').style.display='none';
   if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
 }
