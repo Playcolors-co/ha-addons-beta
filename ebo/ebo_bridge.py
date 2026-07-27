@@ -806,9 +806,15 @@ class Bridge:
                     self.rtc.disconnect()
             except Exception:
                 pass
-            # DIAG(0.26.32): keep RTM logged in (telemetry) — only leave the RTC video channel. If the
-            # robot goes to ZZ anyway, then RTC presence alone is what keeps it awake and we can keep
-            # battery/wifi live while it sleeps.
+            # Full disconnect (known-good standby): also log out RTM so the robot reliably sleeps.
+            # (The 0.26.32 "keep RTM" experiment is deferred to the auto-standby plan — reverted here
+            # so the shipped standby stays reliable until we can verify the RTC-only behaviour.)
+            try:
+                if self.rtm:
+                    self.rtm.logout()
+            except Exception:
+                pass
+            self.rtm = None
             self.rtc = None
             self._observers_registered = False
             # Standby stops the video too — reflect it so Home Assistant shows a clear change
