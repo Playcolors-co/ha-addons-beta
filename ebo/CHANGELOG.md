@@ -1,5 +1,9 @@
 # Changelog — Enabot integration
 
+## 0.26.3 — camera self-heals its RTSP URL
+- The integration camera now reads the **current** RTSP URL from the add-on on each update, so it
+  fixes itself when the add-on's address changes — no need to remove and re-add the robot.
+
 ## 0.26.2 — drive from the panel (D-pad + fullscreen gamepad) + camera reachability fix
 - **Panel driving:** each robot's page now has a **D-pad** (hold to move, release to stop; analog
   vector with a watchdog) and a **⛶ Fullscreen gamepad** mode — the live view fills the screen with
