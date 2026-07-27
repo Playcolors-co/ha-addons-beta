@@ -334,8 +334,11 @@ class VideoPipeline(IVideoFrameObserver):
                 nframes = self.frames
             self._pending_evt.set()
             if first:
-                log("[video] first decoded frame %dx%d (pix_type=%s) — encoding to RTSP"
-                    % (w, h, getattr(frame, "type", "?")))
+                log("[video] first decoded frame %dx%d (pix_type=%s) strides y=%s u=%s v=%s "
+                    "(w=%d → %s) — encoding to RTSP"
+                    % (w, h, getattr(frame, "type", "?"), frame.y_stride, frame.u_stride,
+                       frame.v_stride, w, "PADDED (slow unpack!)" if (frame.y_stride or w) != w
+                       else "no padding"))
             elif nframes % 4500 == 0:         # light heartbeat (~every few minutes)
                 log("[video] streaming — %d frames (%dx%d), %d dropped for latency"
                     % (nframes, w, h, self._dropped))
