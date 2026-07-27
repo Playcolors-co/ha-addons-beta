@@ -97,7 +97,7 @@ Besides the buttons, publish an analog movement vector:
 ```yaml
 service: mqtt.publish
 data:
-  topic: ebo_air2/move/vector
+  topic: ebo/move/vector
   payload: '{"ly":-50,"rx":20,"hold":1.5}'
 ```
 
@@ -105,7 +105,7 @@ data:
   robot stops when it expires). Scale ≈ ±100; the vector is re-sent at 10 Hz until `hold` expires.
 
 The full opcode catalog (motion presets, voice, TTS, camera, eyes, scheduling, system…) is in
-[COMANDI.md](COMANDI.md), usable via the raw `ebo_air2/cmd` topic. Commands that move the robot
+[COMANDI.md](COMANDI.md), usable via the raw `ebo/cmd` topic. Commands that move the robot
 should only be used when you can see it.
 
 ## Known limitations
