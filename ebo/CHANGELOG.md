@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.26.4 — driving available to any user (dashboard), not just the admin panel
+- The integration now exposes **movement buttons** (Forward / Back / Turn left / Turn right / Stop)
+  per robot, so the robot can be driven from a **Home Assistant dashboard by non-admin users** — the
+  add-on panel stays admin-only (settings + pairing). Each press drives ~1s then stops (watchdog).
+- Added a ready **drive card** (`lovelace/ebo-drive-card.yaml`): the camera with a D-pad overlaid;
+  restrict its view to a user to give them driving without admin access.
+
+
 ## 0.26.3 — camera self-heals its RTSP URL
 - The integration camera now reads the **current** RTSP URL from the add-on on each update, so it
   fixes itself when the add-on's address changes — no need to remove and re-add the robot.
