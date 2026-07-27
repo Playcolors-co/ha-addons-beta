@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.26.5 — panel driving UX: wake-on-open, feedback, fullscreen toggles, charging notice
+- **Wake on open, standby on leave:** opening a robot in the panel wakes it; going back puts it in
+  standby. (A robot **on the charger won't drive** — the detail page now shows a clear notice.)
+- **Button press feedback:** D-pad and overlay buttons now visibly react when pressed.
+- **Fullscreen:** tap the video to **show/hide the controls**; open fullscreen by **tapping the
+  camera** in the detail page; smoother live refresh while driving.
+- **Robot list:** each robot has **🎮 drive** (straight to fullscreen gamepad) and **⚙ open** icons.
+
+
 ## 0.26.4 — driving available to any user (dashboard), not just the admin panel
 - The integration now exposes **movement buttons** (Forward / Back / Turn left / Turn right / Stop)
   per robot, so the robot can be driven from a **Home Assistant dashboard by non-admin users** — the
