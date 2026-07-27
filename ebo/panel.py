@@ -656,24 +656,39 @@ function openRobot(n){ SEL=n; render(true); bg(n,'camera/set','on'); }   // join
 function goBack(){ const p=SEL; SEL=null; render(true); if(p) bg(p,'connected/set','off'); }  // leave = standby
 function driveNow(n){ SEL=n; render(true); bg(n,'camera/set','on'); setTimeout(()=>enterFS(n),60); }
 
-// --- driving: hold a D-pad button to move, release to stop (analog vector + watchdog) ---
+// --- driving: hold direction(s) to move, release to stop. MULTIPLE directions COMBINE into one
+// analog vector (move/vector carries ly=forward/back AND rx=turn together), so forward+right drives
+// a smooth diagonal instead of only the last key winning. A watchdog re-sends while held. ---
 let driveSpeed=60, moveNode=null, moveTimer=null;
-const DIRV={fwd:[-1,0],back:[1,0],left:[0,-1],right:[0,1]};
+const pressed=new Set();          // currently-held directions (keyboard and/or D-pad)
 function sendVec(node,ly,rx,hold){
   fetch(B+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({node,suffix:'move/vector',payload:JSON.stringify({ly,rx,hold})})}).catch(()=>{});
 }
-function startMove(node,dir){
-  const d=DIRV[dir]; if(!d) return; stopMove(); moveNode=node;
-  const ly=Math.round(d[0]*driveSpeed), rx=Math.round(d[1]*driveSpeed);
-  sendVec(node,ly,rx,0.7); moveTimer=setInterval(()=>sendVec(node,ly,rx,0.7),350);
+function _driveTick(){
+  if(!moveNode) return;
+  let ly=0, rx=0;
+  if(pressed.has('fwd')) ly-=1;
+  if(pressed.has('back')) ly+=1;
+  if(pressed.has('left')) rx-=1;
+  if(pressed.has('right')) rx+=1;
+  if(ly===0 && rx===0){ sendVec(moveNode,0,0,0); return; }
+  sendVec(moveNode, Math.round(ly*driveSpeed), Math.round(rx*driveSpeed), 0.7);
 }
-function stopMove(){
-  if(moveTimer){clearInterval(moveTimer);moveTimer=null;}
-  if(moveNode){sendVec(moveNode,0,0,0); moveNode=null;}
+function startMove(node,dir){       // press a direction — add it to the combined vector
+  moveNode=node;
+  if(!pressed.has(dir)){ pressed.add(dir); _driveTick(); }   // (also ignores keyboard auto-repeat)
+  if(!moveTimer) moveTimer=setInterval(_driveTick,300);      // keep-alive while any key is held
+}
+function stopMove(dir){             // release one direction; no arg = release ALL (cleanup)
+  if(dir===undefined) pressed.clear(); else pressed.delete(dir);
+  if(pressed.size===0){
+    if(moveTimer){clearInterval(moveTimer);moveTimer=null;}
+    if(moveNode) sendVec(moveNode,0,0,0);                    // stop, but keep moveNode for next press
+  } else { _driveTick(); }
 }
 function dpad(node){
-  const h=d=>`onpointerdown="event.preventDefault();this.classList.add('on');startMove('${node}','${d}')" onpointerup="this.classList.remove('on');stopMove()" onpointerleave="this.classList.remove('on');stopMove()" onpointercancel="this.classList.remove('on');stopMove()"`;
+  const h=d=>`onpointerdown="event.preventDefault();this.classList.add('on');startMove('${node}','${d}')" onpointerup="this.classList.remove('on');stopMove('${d}')" onpointerleave="this.classList.remove('on');stopMove('${d}')" onpointercancel="this.classList.remove('on');stopMove('${d}')"`;
   return `<div class="dpad">
     <button class="db up" ${h('fwd')}>▲</button>
     <button class="db left" ${h('left')}>◀</button>
@@ -706,10 +721,31 @@ function hlsSrc(node){
 // enough to actually drive. Signalling is proxied through Ingress (same origin); the media flows
 // browser<->host:8189 (UDP) directly. If ICE/WebRTC can't connect (odd network), we fall back to HLS.
 function _cleanupVid(v){
+  if(v._statTimer){ clearInterval(v._statTimer); v._statTimer=null; }
   if(v._pc){ try{v._pc.close();}catch(e){} v._pc=null; }
   if(v._hls){ try{v._hls.destroy();}catch(e){} v._hls=null; }
   try{ v.srcObject=null; }catch(e){}
   try{ v.removeAttribute('src'); v.load(); }catch(e){}
+}
+// small diagnostic badge (top-left): shows whether the live view is WebRTC (fluid) or HLS (fallback)
+// and the live decoded fps — so we can see, while driving, exactly what the video path is doing.
+function _fsBadge(txt){
+  const fs=document.getElementById('fs'); if(!fs) return;
+  let el=document.getElementById('fs-badge');
+  if(!el){ el=document.createElement('div'); el.id='fs-badge';
+    el.style.cssText='position:absolute;top:10px;left:10px;z-index:4;background:#000b;color:#0f8;font:12px monospace;padding:4px 8px;border-radius:8px;pointer-events:none';
+    fs.appendChild(el); }
+  el.textContent=txt;
+}
+function _fsWatchStats(v, pc){
+  if(v._statTimer) clearInterval(v._statTimer);
+  v._statTimer=setInterval(async()=>{
+    if(v._pc!==pc){ return; }
+    try{ const st=await pc.getStats(); let fps=null,w=0;
+      st.forEach(s=>{ if(s.type==='inbound-rtp'&&s.kind==='video'){ fps=s.framesPerSecond; w=s.frameWidth||w; } });
+      _fsBadge('WebRTC · '+(fps==null?'…':Math.round(fps))+'fps'+(w?' · '+w+'px':''));
+    }catch(e){}
+  },1000);
 }
 function _fsStatus(msg){
   const fs=document.getElementById('fs'); if(!fs) return;
@@ -787,6 +823,7 @@ async function fsPlay(node){
     if(!open()){ try{pc.close();}catch(e){} return; }
     if(st==='connected'){
       _fsStatus(null);                 // FLUID WebRTC is playing
+      _fsWatchStats(v, pc);            // badge: WebRTC · Nfps
       pc.addEventListener('connectionstatechange',()=>{   // self-heal if the stream drops
         if((pc.connectionState==='failed'||pc.connectionState==='disconnected') && open() && v._pc===pc){
           bg(node,'camera/set','on'); setTimeout(()=>{ if(open()&&v._pc===pc) fsPlay(node); },800);
@@ -797,7 +834,7 @@ async function fsPlay(node){
     if(++iceFails>=2) break;          // answer OK but ICE won't connect → network issue → HLS
     await new Promise(r=>setTimeout(r,600));
   }
-  if(open()){ _fsStatus(null); console.log('[ebo] WHEP unavailable → HLS fallback'); hlsPlay(node); }
+  if(open()){ _fsStatus(null); _fsBadge('HLS (ripiego)'); console.log('[ebo] WHEP unavailable → HLS fallback'); hlsPlay(node); }
 }
 function enterFS(node){
   document.getElementById('fs-pad').innerHTML=dpad(node);
@@ -823,20 +860,19 @@ function exitFS(){
   document.getElementById('fs').style.display='none';
   if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
 }
-// keyboard driving in fullscreen: arrow keys (or WASD) hold-to-move, Esc exits
+// keyboard driving in fullscreen: arrow keys (or WASD) hold-to-move, Esc exits. Multiple keys held
+// at once combine (e.g. Up+Right = forward-right diagonal) — each key adds/removes its own direction.
 const KEYDIR={ArrowUp:'fwd',ArrowDown:'back',ArrowLeft:'left',ArrowRight:'right',w:'fwd',s:'back',a:'left',d:'right'};
-let keyDir=null;
 document.addEventListener('keydown',e=>{
   const open=document.getElementById('fs').style.display==='block';
   if(e.key==='Escape'&&open){ exitFS(); return; }
   if(!open) return;
   const dir=KEYDIR[e.key]; if(!dir) return;
   e.preventDefault();
-  if(keyDir===dir) return;                       // ignore auto-repeat
-  keyDir=dir; startMove(document.getElementById('fsvid').getAttribute('data-node'),dir);
+  startMove(document.getElementById('fsvid').getAttribute('data-node'),dir);   // auto-repeat ignored inside
 });
 document.addEventListener('keyup',e=>{
-  if(KEYDIR[e.key] && keyDir){ e.preventDefault(); keyDir=null; stopMove(); }
+  const dir=KEYDIR[e.key]; if(dir){ e.preventDefault(); stopMove(dir); }
 });
 
 function listView(){
