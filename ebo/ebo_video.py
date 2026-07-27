@@ -57,6 +57,17 @@ class VideoPipeline(IVideoFrameObserver):
         self.h = 0
         self.frames = 0
         self._last_frame = 0.0        # wall-clock of the last decoded frame (liveness: robot awake?)
+        # LATENCY CONTROL: on_frame does NOT write to ffmpeg directly (a blocking write while ffmpeg
+        # is behind would make decoded frames pile up in the Agora SDK and the delay grow without
+        # bound). Instead it drops the newest frame into a single slot (overwriting = dropping any
+        # older un-encoded frame) and a dedicated writer thread feeds ffmpeg. Result: we always
+        # encode the FRESHEST frame ffmpeg can accept and simply skip the ones in between — latency
+        # stays bounded (at the cost of fps when the CPU can't keep up), which is what you want for
+        # driving.
+        self._pending = None          # (y,u,v,w,h) latest frame awaiting encode; overwrite=drop
+        self._pending_evt = threading.Event()
+        self._writer = None
+        self._dropped = 0
         self.feeding = False          # only pipe to ffmpeg while the camera switch is on
         self.lock = threading.Lock()
         self._start_mediamtx()
@@ -89,7 +100,9 @@ class VideoPipeline(IVideoFrameObserver):
                     "hls: yes\n"
                     f"hlsAddress: :{self.hls_port}\n"
                     "hlsVariant: lowLatency\n"
-                    "hlsAlwaysRemux: yes\n"
+                    # only mux HLS when a client actually asks for it (fallback). Always-remux would
+                    # burn CPU generating HLS even while everyone is on the fluid WebRTC path.
+                    "hlsAlwaysRemux: no\n"
                     "hlsSegmentCount: 7\n"
                     "hlsSegmentDuration: 1s\n"
                     "hlsPartDuration: 200ms\n"
@@ -154,6 +167,9 @@ class VideoPipeline(IVideoFrameObserver):
             ["-maxrate", "%dk" % self.bitrate, "-bufsize", "%dk" % (self.bitrate * 2)]
             if self.bitrate > 0 else []
         ) + audio_out + [
+            # minimal muxer buffering (flush every packet, no interleave/mux delay) so the RTSP
+            # output — and everything mediamtx serves downstream — stays as low-latency as possible.
+            "-muxdelay", "0", "-muxpreload", "0", "-flush_packets", "1",
             "-f", "rtsp", "-rtsp_transport", "tcp", self.rtsp_url,
         ], stdin=subprocess.PIPE, pass_fds=pass_fds)
         if a_r is not None:
@@ -229,6 +245,38 @@ class VideoPipeline(IVideoFrameObserver):
             self._stop_ffmpeg()
             self.w = self.h = 0
 
+    def _ensure_writer(self):
+        if self._writer is None or not self._writer.is_alive():
+            self._writer = threading.Thread(target=self._writer_loop, daemon=True)
+            self._writer.start()
+
+    def _writer_loop(self):
+        """The ONLY thread that writes YUV to ffmpeg's stdin. Blocking writes live here, off the
+        Agora callback thread, so a slow encoder drops frames (via the 1-slot buffer) instead of
+        backing up and inflating latency."""
+        while True:
+            try:
+                if not self._pending_evt.wait(0.5):
+                    continue
+                self._pending_evt.clear()
+                with self.lock:
+                    item = self._pending
+                    self._pending = None
+                    ff = self.ff
+                if item is None or ff is None or ff.stdin is None:
+                    continue
+                y, u, v = item[0], item[1], item[2]
+                try:
+                    ff.stdin.write(y)
+                    ff.stdin.write(u)
+                    ff.stdin.write(v)
+                except (BrokenPipeError, ValueError, OSError):
+                    with self.lock:
+                        if self.ff is ff:
+                            self._stop_ffmpeg()
+            except Exception as e:
+                log("[video] writer error:", e)
+
     # ---- Agora callback: one decoded YUV frame ----
     def on_frame(self, channel_id, remote_uid, frame):
         try:
@@ -245,6 +293,8 @@ class VideoPipeline(IVideoFrameObserver):
                     self.w, self.h = w, h
                     self.frames = 0
                     self._dec_acc = 0
+                    self._pending = None
+                    self._ensure_writer()
                 elif self.fps < self.src_fps:
                     # decimate: keep ~fps of every src_fps source frames (cuts encode CPU)
                     self._dec_acc += self.fps
@@ -254,22 +304,22 @@ class VideoPipeline(IVideoFrameObserver):
                 y = _pack_plane(frame.y_buffer, frame.y_stride or w, w, h)
                 u = _pack_plane(frame.u_buffer, frame.u_stride or (w // 2), w // 2, h // 2)
                 v = _pack_plane(frame.v_buffer, frame.v_stride or (w // 2), w // 2, h // 2)
-                try:
-                    self.ff.stdin.write(y)
-                    self.ff.stdin.write(u)
-                    self.ff.stdin.write(v)
-                except (BrokenPipeError, ValueError):
-                    self._stop_ffmpeg()
-                    return 0
+                # hand off to the writer thread. Overwriting a not-yet-encoded frame = we DROP it
+                # (bounded latency). The writer picks up only the freshest one.
+                if self._pending is not None:
+                    self._dropped += 1
+                self._pending = (y, u, v, w, h)
                 self.frames += 1
                 self._last_frame = time.time()
-                if self.frames == 1:
-                    log("[video] first decoded frame %dx%d (pix_type=%s) — encoding to RTSP"
-                        % (w, h, getattr(frame, "type", "?")))
-                elif self.frames % 4500 == 0:     # light heartbeat (~every few minutes)
-                    log("[video] streaming — %d frames (%dx%d)" % (self.frames, w, h))
-                elif self.frames % 300 == 0:      # detailed, only in debug
-                    log("[video] %d frames received" % self.frames, level="debug")
+                first = self.frames == 1
+                nframes = self.frames
+            self._pending_evt.set()
+            if first:
+                log("[video] first decoded frame %dx%d (pix_type=%s) — encoding to RTSP"
+                    % (w, h, getattr(frame, "type", "?")))
+            elif nframes % 4500 == 0:         # light heartbeat (~every few minutes)
+                log("[video] streaming — %d frames (%dx%d), %d dropped for latency"
+                    % (nframes, w, h, self._dropped))
         except Exception as e:
             log("[video] frame error:", e)
         return 0

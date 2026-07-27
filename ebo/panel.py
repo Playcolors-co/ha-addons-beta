@@ -673,6 +673,11 @@ function _driveTick(){
   if(pressed.has('left')) rx-=1;
   if(pressed.has('right')) rx+=1;
   if(ly===0 && rx===0){ sendVec(moveNode,0,0,0); return; }
+  // Normalize the diagonal so a two-axis press doesn't OVERDRIVE one wheel (ly+rx would sum to
+  // ~2×speed, making the robot pivot then shoot off at double speed). With normalization,
+  // forward+right becomes a smooth forward ARC (each axis ~0.7×speed) instead of a spin.
+  const mag=Math.hypot(ly,rx);
+  if(mag>1){ ly/=mag; rx/=mag; }
   sendVec(moveNode, Math.round(ly*driveSpeed), Math.round(rx*driveSpeed), 0.7);
 }
 function startMove(node,dir){       // press a direction — add it to the combined vector
