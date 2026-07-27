@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.26.1 — fix integration load on Home Assistant 2026.7
+- The integration's config flow failed to load on recent Home Assistant ("Invalid handler
+  specified") because `is_hassio` moved to `homeassistant.helpers.hassio`. Now imported from there
+  (with a fallback), and the unused Supervisor-discovery step was removed. Verified live: robots
+  are added as native EBO devices.
+
 ## 0.26.0 — native-only, no MQTT, one repo, self-installing integration
 - **Renamed `ebo_air2` → `ebo`** (add-on slug, integration domain, topics) so it's generic for
   future robot models; robots stay distinct via their `model`.
