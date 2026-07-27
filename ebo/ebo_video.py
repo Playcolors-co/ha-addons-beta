@@ -56,6 +56,7 @@ class VideoPipeline(IVideoFrameObserver):
         self.w = 0
         self.h = 0
         self.frames = 0
+        self._last_frame = 0.0        # wall-clock of the last decoded frame (liveness: robot awake?)
         self.feeding = False          # only pipe to ffmpeg while the camera switch is on
         self.lock = threading.Lock()
         self._start_mediamtx()
@@ -212,6 +213,11 @@ class VideoPipeline(IVideoFrameObserver):
             except (BlockingIOError, BrokenPipeError, OSError):
                 pass
 
+    def is_streaming(self):
+        """True when live frames are actually arriving — i.e. the robot is awake and publishing.
+        Used to decide whether turning the camera on needs a fresh RTC re-join to WAKE the robot."""
+        return self.feeding and self.frames > 0 and (time.time() - self._last_frame) < 3.0
+
     # ---- camera switch ----
     def start_feed(self):
         with self.lock:
@@ -256,6 +262,7 @@ class VideoPipeline(IVideoFrameObserver):
                     self._stop_ffmpeg()
                     return 0
                 self.frames += 1
+                self._last_frame = time.time()
                 if self.frames == 1:
                     log("[video] first decoded frame %dx%d (pix_type=%s) — encoding to RTSP"
                         % (w, h, getattr(frame, "type", "?")))

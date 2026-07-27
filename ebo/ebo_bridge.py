@@ -718,16 +718,54 @@ class Bridge:
 
     def set_camera(self, on):
         self.video_on = on
-        # The robot wakes/sleeps by our PRESENCE in the Agora RTC channel — exactly like the app
-        # (open app = join = wake; close = leave = sleep). The isSleeping opcode alone does NOT
-        # reliably wake it once it has gone to standby. So: turning the camera ON while the session
-        # is disconnected first re-joins RTC (which wakes the robot) and connect_agora() then starts
-        # the feed itself (video_on is already True). If we're already connected, just feed.
-        if on and not self.connected:
-            self.set_connected(True)     # connect_agora() starts the feed because video_on=True
+        # The robot wakes/sleeps by our PRESENCE in the Agora RTC channel — a *fresh viewer join* is
+        # what wakes it, exactly like opening the app. The isSleeping opcode alone does NOT reliably
+        # wake it from standby. Crucially, the robot can drift back to ZZ on its own (charging/idle)
+        # while WE are still "connected" — so "connected" is not enough to know it's awake. We check
+        # whether live frames are actually arriving:
+        #   - not connected            -> fresh join (set_connected) wakes it + feeds
+        #   - connected but NO frames  -> robot slept under us -> force a fresh RTC rejoin to wake it
+        #   - connected AND streaming  -> already awake -> just make sure the feed is on (no rejoin,
+        #                                 so re-asserting camera/on as a keep-alive won't blip video)
+        if on:
+            streaming = bool(self.video and self.video.is_streaming())
+            if not self.connected:
+                self.set_connected(True)
+            elif not streaming:
+                self._force_rejoin()
+            elif self.video and not self.video.feeding:
+                self._camera_feed(True)
+            # else: already connected, feeding and streaming — nothing to do. This is the keep-alive
+            # path (camera/on re-asserted every ~20 s); doing nothing avoids spawning a new diag
+            # thread each time and avoids a needless video blip.
         else:
-            self._camera_feed(on)
+            self._camera_feed(False)
         self._publish_camera_state()
+
+    def _force_rejoin(self):
+        """Leave and rejoin the Agora RTC channel: a fresh viewer join is what actually WAKES the
+        robot from standby. Mirrors the app reconnecting when you reopen it. connect_agora() restarts
+        the video feed on its own because video_on is True."""
+        log("[wake] robot not streaming — forcing a fresh RTC rejoin to wake it")
+        try:
+            if self.rtc:
+                try:
+                    self.rtc.disconnect()
+                except Exception:
+                    pass
+            try:
+                if self.rtm:
+                    self.rtm.logout()
+            except Exception:
+                pass
+        except Exception:
+            pass
+        self.connected = True
+        try:
+            self.connect_agora()
+            self.send(OP_HANDSHAKE, {"userId": self.account})
+        except Exception as e:
+            log("[wake] rejoin failed:", e)
 
     def set_connected(self, on):
         """Master session switch. OFF: leave the Agora session so the robot can sleep (no

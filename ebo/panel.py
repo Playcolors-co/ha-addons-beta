@@ -711,32 +711,47 @@ function _cleanupVid(v){
   try{ v.srcObject=null; }catch(e){}
   try{ v.removeAttribute('src'); v.load(); }catch(e){}
 }
-async function whepPlay(node, onConnected){
+function _fsStatus(msg){
+  const fs=document.getElementById('fs'); if(!fs) return;
+  let el=document.getElementById('fs-status');
+  if(!el){ el=document.createElement('div'); el.id='fs-status';
+    el.style.cssText='position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:3;color:#fff;font-size:17px;background:#000a;pointer-events:none;text-align:center;padding:20px';
+    fs.appendChild(el); }
+  if(msg===null){ el.style.display='none'; } else { el.textContent=msg; el.style.display='flex'; }
+}
+// ONE WHEP attempt: returns the connected-pending pc on an accepted offer, throws otherwise. A 404
+// means the stream isn't published yet (the robot is still waking) — the caller retries.
+async function whepAttempt(node){
   const r=ROBOTS.find(x=>x.node===node);
-  if(!r||!r.rtsp) return false;
-  let port, path;
-  try{ const u=new URL(r.rtsp.replace(/^rtsp:/,'http:'));
-       port=8189+(parseInt(u.port||'8554',10)-8554);
-       path=u.pathname.replace(/^\//,''); }catch(e){ return false; }
+  if(!r||!r.rtsp) throw new Error('no-rtsp-entry');
+  const u=new URL(r.rtsp.replace(/^rtsp:/,'http:'));
+  const port=8189+(parseInt(u.port||'8554',10)-8554);
+  const path=u.pathname.replace(/^\//,'');
   const v=document.getElementById('fsvid');
   const pc=new RTCPeerConnection({iceServers:[]});
-  v._pc=pc;
   pc.addTransceiver('video',{direction:'recvonly'});
   pc.addTransceiver('audio',{direction:'recvonly'});
   pc.ontrack=(e)=>{ if(e.streams&&e.streams[0]&&v.srcObject!==e.streams[0]){ v.srcObject=e.streams[0]; v.play().catch(()=>{});} };
-  pc.onconnectionstatechange=()=>{ if(pc.connectionState==='connected'&&onConnected) onConnected(); };
-  const offer=await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  // non-trickle: wait for ICE gathering to finish (or 1.5 s), then send the whole offer
-  await new Promise(res=>{ if(pc.iceGatheringState==='complete') return res();
-    const t=setTimeout(res,1500);
+  const offer=await pc.createOffer(); await pc.setLocalDescription(offer);
+  await new Promise(res=>{ if(pc.iceGatheringState==='complete')return res();
+    const t=setTimeout(res,1200);
     pc.addEventListener('icegatheringstatechange',()=>{ if(pc.iceGatheringState==='complete'){clearTimeout(t);res();} }); });
-  const resp=await fetch(B+'/whepp/'+port+'/'+path,{method:'POST',
-    headers:{'Content-Type':'application/sdp'}, body:pc.localDescription.sdp});
-  if(!resp.ok) throw new Error('whep http '+resp.status);
-  const answer=await resp.text();
-  await pc.setRemoteDescription({type:'answer',sdp:answer});
-  return true;
+  let resp;
+  try{ resp=await fetch(B+'/whepp/'+port+'/'+path,{method:'POST',
+        headers:{'Content-Type':'application/sdp'}, body:pc.localDescription.sdp}); }
+  catch(e){ try{pc.close();}catch(x){} throw new Error('fetch:'+e.message); }
+  if(!resp.ok){ try{pc.close();}catch(x){} throw new Error(resp.status===404?'no-publisher':('http'+resp.status)); }
+  await pc.setRemoteDescription({type:'answer',sdp:await resp.text()});
+  return pc;
+}
+function _waitConn(pc, ms){
+  return new Promise(res=>{
+    if(pc.connectionState==='connected') return res('connected');
+    const t=setTimeout(()=>res('timeout'), ms);
+    pc.addEventListener('connectionstatechange',()=>{
+      if(pc.connectionState==='connected'){clearTimeout(t);res('connected');}
+      else if(pc.connectionState==='failed'){clearTimeout(t);res('failed');} });
+  });
 }
 function hlsPlay(node){
   const v=document.getElementById('fsvid'); const src=hlsSrc(node);
@@ -750,15 +765,39 @@ function hlsPlay(node){
     v.src=src; v.play().catch(()=>{});
   }
 }
-function fsPlay(node){
+// Play the fluid WebRTC. The stream appears only a few seconds AFTER camera/set on (the robot has to
+// wake and produce the first frame), so we RETRY the WHEP offer until the publisher is up instead of
+// giving up on the first 404 (that was the bug: it fell straight back to the ~5 s HLS). Only if the
+// offer is accepted but ICE genuinely can't connect do we fall back to HLS.
+async function fsPlay(node){
   const v=document.getElementById('fsvid');
   _cleanupVid(v);
-  let done=false;
-  const fb=(why)=>{ if(done) return; done=true; if(v._pc){try{v._pc.close();}catch(e){}v._pc=null;} console.log('[ebo] WebRTC->HLS fallback:',why); hlsPlay(node); };
-  const wd=setTimeout(()=>fb('timeout'), 5000);      // if WebRTC isn't playing in 5 s, use HLS
-  whepPlay(node, ()=>{ done=true; clearTimeout(wd); })   // onConnected: WebRTC is up, keep it
-    .then(ok=>{ if(!ok){ clearTimeout(wd); fb('no-rtsp'); } })
-    .catch(err=>{ clearTimeout(wd); fb(err.message||err); });
+  const gen=(v._gen=(v._gen||0)+1);
+  const open=()=>document.getElementById('fs').style.display==='block' && v._gen===gen;
+  _fsStatus('Connessione al robot…');
+  const deadline=Date.now()+20000;   // keep trying while the robot wakes + first frame arrives
+  let iceFails=0;
+  while(open() && Date.now()<deadline){
+    let pc;
+    try{ pc=await whepAttempt(node); }
+    catch(e){ if(!open()) return; await new Promise(r=>setTimeout(r,900)); continue; }  // not ready → retry
+    if(!open()){ try{pc.close();}catch(e){} return; }
+    v._pc=pc;
+    const st=await _waitConn(pc, 6000);
+    if(!open()){ try{pc.close();}catch(e){} return; }
+    if(st==='connected'){
+      _fsStatus(null);                 // FLUID WebRTC is playing
+      pc.addEventListener('connectionstatechange',()=>{   // self-heal if the stream drops
+        if((pc.connectionState==='failed'||pc.connectionState==='disconnected') && open() && v._pc===pc){
+          bg(node,'camera/set','on'); setTimeout(()=>{ if(open()&&v._pc===pc) fsPlay(node); },800);
+        } });
+      return;
+    }
+    try{pc.close();}catch(e){} v._pc=null;
+    if(++iceFails>=2) break;          // answer OK but ICE won't connect → network issue → HLS
+    await new Promise(r=>setTimeout(r,600));
+  }
+  if(open()){ _fsStatus(null); console.log('[ebo] WHEP unavailable → HLS fallback'); hlsPlay(node); }
 }
 function enterFS(node){
   document.getElementById('fs-pad').innerHTML=dpad(node);
