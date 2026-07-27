@@ -152,7 +152,7 @@ class VideoPipeline(IVideoFrameObserver):
             audio_out = ["-c:a", "aac", "-b:a", "48k"]
             pass_fds = (a_r,)
         self.ff = subprocess.Popen([
-            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "ffmpeg", "-hide_banner", "-loglevel", "warning", "-stats", "-stats_period", "2",
             # low latency: timestamp frames by arrival (clean monotonic DTS/PTS — fixes the
             # "No dts" issue) and DON'T resample the frame rate (forcing CFR buffered/dropped
             # frames and added delay). The robot streams ~25 fps.
