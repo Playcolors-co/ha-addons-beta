@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.26.56 — English-only UI strings + debug off
+- All panel strings are now **English** (the add-on is English-only): the connection badge/warning, the
+  "Connecting to the robot…" overlay and the detail connection hint were showing Italian.
+- Turned off debug logging that had been left on for diagnostics — it was starving the video encoder,
+  which left the remote HLS stuck on "connecting".
+
+
 ## 0.26.55 — keyboard-in-dialog fix, connection badge, better remote HLS
 - **Fixed: keyboard drove the robot while typing.** When the "Save route" name box (or any dialog) was
   open, pressing `a`/`w`/`s`/`d`/arrows moved the robot instead of typing (the `a` key sits right over
