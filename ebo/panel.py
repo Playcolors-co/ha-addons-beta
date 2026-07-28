@@ -1075,11 +1075,7 @@ function hlsPlay(node){
   const v=document.getElementById('fsvid'); const src=hlsSrc(node);
   if(!src) return;
   if(window.Hls && Hls.isSupported()){
-    // Hug the live edge: stay ~1s behind, and if we drift too far back (buffering) jump forward or
-    // speed up slightly to catch up — this is what makes the remote HLS feel less laggy. (LAN uses
-    // WebRTC, so this only affects the remote/fallback HLS path.)
-    const hls=new Hls({lowLatencyMode:true, backBufferLength:4,
-      liveSyncDuration:1, liveMaxLatencyDuration:4, maxLiveSyncPlaybackRate:1.5});
+    const hls=new Hls({lowLatencyMode:true, backBufferLength:4});
     hls.on(Hls.Events.ERROR,(e,d)=>{ if(d.fatal){ try{hls.destroy();}catch(x){} setTimeout(()=>{ if(document.getElementById('fs').style.display==='block') hlsPlay(node); },1500); }});
     hls.loadSource(src); hls.attachMedia(v); v._hls=hls;
     v.play().catch(()=>{});

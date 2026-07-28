@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.26.58 — REVERT the HLS "improvement" (it broke HLS loading)
+- The 0.26.55 remote-HLS tuning was a **regression**: mediamtx `hlsSegmentCount: 3` (a ~3 s playlist)
+  together with hls.js `liveMaxLatencyDuration: 4` is an invalid combo — hls.js won't start when the
+  max-latency exceeds the playlist window, so the remote video hung on "connecting". Reverted both to
+  the known-good 0.26.54 values (`hlsSegmentCount: 7`, plain `lowLatencyMode` player). Remote HLS loads
+  again. (A safer latency tune can come later, with the window sized to match.)
+
+
 ## 0.26.57 — Routes hidden on robots that don't support them (e.g. Air 2)
 - **Routes (teach & repeat)** needs the robot's route/patrol firmware. The **EBO Air 2 doesn't have
   it** — its firmware silently ignores the route/patrol commands (the official app hides patrol for the
