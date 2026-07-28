@@ -568,21 +568,30 @@ input[type=range]{width:100%}
 #fs{position:fixed;inset:0;background:#000;z-index:9999;display:none}
 #fsvid{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;object-fit:contain}
 .fs-tap{position:absolute;inset:0;z-index:1}   /* tap the video to show/hide controls */
-.fsx{position:absolute;top:12px;right:14px;z-index:2;background:#000a;color:#fff;border:0;border-radius:50%;width:42px;height:42px;font-size:18px;cursor:pointer}
-.fs-pad{position:absolute;left:26px;bottom:26px;z-index:2;opacity:.95}
-.fs-pad .dpad{grid-template-columns:repeat(3,68px);grid-template-rows:repeat(3,68px)}
-.fs-pad .db{background:#ffffff26;color:#fff;backdrop-filter:blur(3px)}
-.fs-pad .joy{width:210px;height:210px;background:radial-gradient(circle at 50% 42%,#ffffff26,#00000055);backdrop-filter:blur(3px)}
-.fs-pad .joy-knob{width:78px;height:78px;margin:-39px 0 0 -39px}
-.fs-act{position:absolute;right:22px;bottom:22px;z-index:2;display:flex;flex-direction:column;gap:10px;opacity:.92}
-.fs-act .btn{background:#ffffff26;color:#fff;backdrop-filter:blur(3px);min-width:120px}
-.fs-sp{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);z-index:2;width:200px;opacity:.9}
-#fs.hidectl .fs-pad,#fs.hidectl .fs-act,#fs.hidectl .fs-sp{display:none}
-/* press feedback (so you SEE the button react) */
+/* fullscreen top bar: info (battery/signal/video) on the left, actions on the right (like the app) */
+.fs-top{position:absolute;top:0;left:0;right:0;z-index:3;display:flex;justify-content:space-between;align-items:center;
+  gap:10px;padding:10px 14px;color:#fff;font-size:13px;background:linear-gradient(#000a,#0000)}
+.fs-info{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.fs-info .b{background:#0006;padding:3px 8px;border-radius:8px;backdrop-filter:blur(3px)}
+.fs-actions{display:flex;align-items:center;gap:8px}
+.fs-ic{width:46px;height:46px;border-radius:50%;background:#0007;color:#fff;border:0;font-size:19px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
+.fs-ic:active{transform:scale(.92)}.fs-ic.on{background:#2b6cff}
+.fs-ic.disabled{opacity:.35;pointer-events:none}
+/* dual sticks: left = forward/back (vertical), right = turn (horizontal) — like the Enabot app */
+.stick{position:absolute;bottom:28px;z-index:2;width:150px;height:150px;border-radius:50%;touch-action:none;user-select:none;
+  -webkit-user-select:none;background:radial-gradient(circle at 50% 45%,#ffffff22,#00000055);border:1px solid #ffffff1f;backdrop-filter:blur(3px)}
+.fs-lstick{left:28px}.fs-rstick{right:28px}
+.stick .joy-knob{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;
+  background:radial-gradient(circle at 40% 33%,#5a97ff,#2b6cff);box-shadow:0 3px 12px #0009;pointer-events:none;transition:transform .06s ease-out}
+.stick.drag .joy-knob{transition:none}
+.stick .ax{position:absolute;color:#ffffff88;font-size:13px}
+.fs-lstick .ax.a1{top:7px;left:50%;transform:translateX(-50%)}.fs-lstick .ax.a2{bottom:7px;left:50%;transform:translateX(-50%)}
+.fs-rstick .ax.a1{left:7px;top:50%;transform:translateY(-50%)}.fs-rstick .ax.a2{right:7px;top:50%;transform:translateY(-50%)}
+#fs.hidectl .fs-top,#fs.hidectl .stick{display:none}
+/* press feedback */
 .btn:active{transform:scale(.96);filter:brightness(1.3)}
 .db.on,.db:active{background:#2b6cff !important;color:#fff !important;transform:scale(.9)}
-.fs-pad .db.on,.fs-pad .db:active{background:#2b6cffcc !important}
-.fs-act .btn:active{background:#2b6cffcc !important}
 /* list action icons + detail camera hint + charging warning */
 .ic{border:0;background:transparent;font-size:20px;cursor:pointer;padding:6px 8px;border-radius:9px;line-height:1;flex:none}
 .ic:hover{background:#0001}
@@ -605,11 +614,19 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 <div id="fs" tabindex="0">
   <video id="fsvid" autoplay muted playsinline></video>
   <div class="fs-tap" onclick="toggleFsControls()"></div>
-  <button class="fsx" onclick="exitFS()">✕</button>
-  <div class="fs-pad" id="fs-pad"></div>
-  <input class="fs-sp" id="fs-sp" type="range" min="1" max="100" value="60" oninput="driveSpeed=+this.value">
-  <div class="fs-act" id="fs-act"></div>
+  <div class="fs-top" id="fs-top"></div>
+  <div class="stick fs-lstick" id="fs-lstick" data-axis="v"><span class="ax a1">▲</span><span class="ax a2">▼</span><div class="joy-knob"></div></div>
+  <div class="stick fs-rstick" id="fs-rstick" data-axis="h"><span class="ax a1">◀</span><span class="ax a2">▶</span><div class="joy-knob"></div></div>
 </div>
+
+<dialog id="fsopts"><div class="in">
+  <h3>Drive settings</h3>
+  <label>Speed (<span id="fs-spd-v">60</span>)</label>
+  <input type="range" min="1" max="100" value="60" oninput="driveSpeed=+this.value;document.getElementById('fs-spd-v').textContent=this.value">
+  <label>Video quality</label><select id="fs-vq" onchange="if(fsNode)cmd(fsNode,'video_quality/set',this.value)">${''}</select>
+  <div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn pri" onclick="document.getElementById('fsopts').close()">Done</button></div>
+  <div class="note">More actions (talk, listen, recording, snapshot, patrol) coming soon.</div>
+</div></dialog>
 
 <dialog id="opts"><div class="in">
   <h3>Add-on settings</h3><div id="optform"></div>
@@ -742,12 +759,52 @@ function initJoysticks(){
   });
 }
 // --- fullscreen gamepad: live view fills the screen, controls overlaid ---
-let fsTimer=null;
-function fsActions(node){
-  const b=(s,p,t)=>`<button class="btn" onclick="cmd('${node}','${s}','${p}')">${t}</button>`;
-  return b('camera/set','on','☀ Wake')
-       + `<button class="btn" onclick="toggleLaser('${node}')">• Laser</button>`   // toggle on/off
-       + b('dock','','⌂ Dock')+b('connected/set','off','🌙 Standby');
+let fsTimer=null, fsNode=null, fsDX=0, fsDY=0, fsDriveTimer=null;
+// fullscreen top bar: battery/signal/video on the LEFT (like the video overlay), minimal actions on
+// the RIGHT — Laser, Night vision (soon), Return to base, Settings. Talk/listen/record/snapshot/
+// patrol will join the action row later.
+function fsTop(node){
+  const r=ROBOTS.find(x=>x.node===node)||{}, st=r.state||{};
+  const laserOn=(st.laser==='true');
+  return `<div class="fs-info">
+      <button class="fs-ic" onclick="exitFS()" title="Back" style="width:40px;height:40px;font-size:24px">‹</button>
+      <span class="b" id="fs-badge2">···</span>
+      <span class="b">🔋 ${st.battery??'—'}%</span>
+      <span class="b">📶 ${st.wifi??'—'}</span>
+    </div>
+    <div class="fs-actions">
+      <button class="fs-ic ${laserOn?'on':''}" id="fs-laser" onclick="toggleLaser('${node}')" title="Laser">•</button>
+      <button class="fs-ic disabled" title="Night/day vision (coming soon)">🌙</button>
+      <button class="fs-ic" onclick="cmd('${node}','dock','')" title="Return to base">⌂</button>
+      <button class="fs-ic" onclick="openFsSettings()" title="Settings">⚙</button>
+    </div>`;
+}
+// dual-stick driving: LEFT = forward/back (vertical), RIGHT = turn (horizontal). Both can be held at
+// once (one thumb each) to drive a smooth curve. Sends the combined move/vector at ~8 Hz.
+function _fsDriveTick(){ if(fsNode && (fsDX||fsDY)) sendVec(fsNode, Math.round(fsDY*driveSpeed), Math.round(fsDX*driveSpeed), 0.6); }
+function initStick(el){
+  if(el._init) return; el._init=true;
+  const knob=el.querySelector('.joy-knob'), axis=el.getAttribute('data-axis');
+  let cx=0,cy=0,R=1;
+  const aim=(px,py)=>{ let dx=(px-cx)/R, dy=(py-cy)/R;
+    if(axis==='v'){ dx=0; dy=Math.max(-1,Math.min(1,dy)); fsDY=dy; }
+    else { dy=0; dx=Math.max(-1,Math.min(1,dx)); fsDX=dx; }
+    knob.style.transform='translate('+(dx*R*0.6)+'px,'+(dy*R*0.6)+'px)'; };
+  const down=e=>{ const b=el.getBoundingClientRect(); cx=b.left+b.width/2; cy=b.top+b.height/2; R=b.width/2;
+    el.classList.add('drag'); try{el.setPointerCapture(e.pointerId);}catch(x){} aim(e.clientX,e.clientY);
+    if(!fsDriveTimer) fsDriveTimer=setInterval(_fsDriveTick,120); _fsDriveTick(); e.preventDefault(); };
+  const move=e=>{ if(!el.classList.contains('drag')) return; aim(e.clientX,e.clientY); e.preventDefault(); };
+  const up=()=>{ el.classList.remove('drag'); if(axis==='v')fsDY=0; else fsDX=0; knob.style.transform='translate(0,0)';
+    if(!fsDX && !fsDY){ if(fsDriveTimer){clearInterval(fsDriveTimer);fsDriveTimer=null;} if(fsNode) sendVec(fsNode,0,0,0); } };
+  el.addEventListener('pointerdown',down); el.addEventListener('pointermove',move);
+  el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
+}
+function openFsSettings(){
+  const d=document.getElementById('fsopts'); const r=ROBOTS.find(x=>x.node===fsNode)||{}, st=r.state||{};
+  document.getElementById('fs-vq').innerHTML=opt(VQ, st.video_quality);
+  document.getElementById('fs-spd-v').textContent=driveSpeed;
+  d.querySelector('input[type=range]').value=driveSpeed;
+  d.showModal();
 }
 let wakeTimer=null;
 // Fluid video: the add-on's Low-Latency HLS, played in a <video> via hls.js, PROXIED through
@@ -773,15 +830,10 @@ function _cleanupVid(v){
   try{ v.srcObject=null; }catch(e){}
   try{ v.removeAttribute('src'); v.load(); }catch(e){}
 }
-// small diagnostic badge (top-left): shows whether the live view is WebRTC (fluid) or HLS (fallback)
-// and the live decoded fps — so we can see, while driving, exactly what the video path is doing.
+// video-mode indicator shown in the top bar (WebRTC·fps, or HLS fallback, or connecting)
 function _fsBadge(txt){
-  const fs=document.getElementById('fs'); if(!fs) return;
-  let el=document.getElementById('fs-badge');
-  if(!el){ el=document.createElement('div'); el.id='fs-badge';
-    el.style.cssText='position:absolute;top:10px;left:10px;z-index:4;background:#000b;color:#0f8;font:12px monospace;padding:4px 8px;border-radius:8px;pointer-events:none';
-    fs.appendChild(el); }
-  el.textContent=txt;
+  const el=document.getElementById('fs-badge2');   // lives inside the top info bar (fsTop)
+  if(el) el.textContent=txt;
 }
 function _fsWatchStats(v, pc){
   if(v._statTimer) clearInterval(v._statTimer);
@@ -884,12 +936,12 @@ async function fsPlay(node){
 }
 let _driveVQ=null;   // video quality saved on entering drive, restored on exit
 function enterFS(node){
-  document.getElementById('fs-pad').innerHTML=joystick(node);
-  document.getElementById('fs-act').innerHTML=fsActions(node);
-  initJoysticks();
+  fsNode=node; fsDX=0; fsDY=0;
+  document.getElementById('fs-top').innerHTML=fsTop(node);
+  initStick(document.getElementById('fs-lstick'));
+  initStick(document.getElementById('fs-rstick'));
   const v=document.getElementById('fsvid');
   v.setAttribute('data-node',node);                 // keyboard driving reads the node from here
-  document.getElementById('fs-sp').value=driveSpeed;
   const fs=document.getElementById('fs'); fs.classList.remove('hidectl'); fs.style.display='block';
   fs.focus();                                       // keyboard focus so the arrow keys reach us
   bg(node,'camera/set','on');                       // join RTC + feed = wake (like opening the app)
@@ -909,6 +961,8 @@ function enterFS(node){
 function toggleFsControls(){ document.getElementById('fs').classList.toggle('hidectl'); }
 function exitFS(){
   stopMove(); if(fsTimer){clearInterval(fsTimer);fsTimer=null;}
+  if(fsDriveTimer){clearInterval(fsDriveTimer);fsDriveTimer=null;} fsDX=0; fsDY=0;
+  if(fsNode) sendVec(fsNode,0,0,0); fsNode=null;
   if(wakeTimer){clearInterval(wakeTimer);wakeTimer=null;}
   const v=document.getElementById('fsvid');
   const node=v.getAttribute('data-node');
