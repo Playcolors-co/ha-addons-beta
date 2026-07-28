@@ -42,7 +42,7 @@ API_TOKEN = os.environ.get("EBO_API_TOKEN", "")
 
 # Command suffixes the panel may publish (allow-list). Movement is excluded on purpose.
 ALLOWED_CMDS = {
-    "camera/set", "laser/set", "dock", "sleep/set", "wake", "connected/set", "patrol/start",
+    "camera/set", "laser/set", "dock", "sleep/set", "wake", "connected/set",
     "say", "talk",
     "video_quality/set", "image_style/set", "volume/set", "talkback_volume/set",
     "speed/set", "sports_record/set", "call_rec/set", "eyes/set",
