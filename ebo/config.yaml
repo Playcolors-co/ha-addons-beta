@@ -1,5 +1,5 @@
 name: EBO for Home Assistant (unofficial, beta)
-version: "0.26.42"
+version: "0.26.43"
 slug: ebo
 description: Unofficial, free community add-on to manage Enabot EBO robots in Home Assistant (panel, camera, entities). Not affiliated with Enabot.
 url: https://github.com/Playcolors-co/ha-addons-beta
@@ -64,19 +64,46 @@ ingress: true
 ingress_port: 8099
 panel_icon: mdi:robot
 panel_title: EBO
-# Only the account login lives here; EVERYTHING else (region, host, video, audio, quality, log
-# level…) is managed from the Enabot panel and stored in /data/panel.json.
+# ALL add-on settings live here (Configuration tab): your account login + connection, and the
+# advanced audio/video processing options. Per-robot settings (video quality, eyes, volume, speed…)
+# are NOT here — you change those on the robot's page in the panel; they're sent to the robot.
 options:
+  # --- account / login ---
   email: ""
   password: ""
   payload_key: ""
   sign_key: ""
+  region: "GB"
+  host: "ebox-eu.enabotserverintl.com"
+  robot_id: 0
+  # --- add-on audio/video processing (advanced — the defaults are good; the drive view auto-tunes) ---
+  video: true
+  audio: true
+  talk: false
+  video_max_height: 720
+  video_fps: 20
+  video_bitrate: 2500
+  video_preset: ultrafast
+  audio_codec: "8"
   log_level: info
 schema:
   email: str
   password: password
   payload_key: password
   sign_key: password
+  # account login region and server host (match your Enabot account); robot_id 0 = all robots
+  region: str
+  host: str
+  robot_id: int
+  # add-on audio/video pipeline (advanced)
+  video: bool
+  audio: bool
+  talk: bool
+  video_max_height: int
+  video_fps: int
+  video_bitrate: int
+  video_preset: list(ultrafast|superfast|veryfast|faster|fast)?
+  audio_codec: list(8|9)?
   # add-on log verbosity: info (default) | debug (chatty) | warning (only problems)
   log_level: list(debug|info|warning)?
   # token the companion integration uses to read this add-on's data API. Auto-generated if empty;

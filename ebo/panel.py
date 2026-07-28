@@ -39,7 +39,6 @@ MQTT_PASS = os.environ.get("EBO_MQTT_PASS", "") or None
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 API_PORT = int(os.environ.get("EBO_API_PORT", "8098"))
 API_TOKEN = os.environ.get("EBO_API_TOKEN", "")
-PANEL_CFG = "/data/panel.json"
 
 # Command suffixes the panel may publish (allow-list). Movement is excluded on purpose.
 ALLOWED_CMDS = {
@@ -51,27 +50,9 @@ ALLOWED_CMDS = {
     "cmd",
 }
 
-# Add-on settings the panel manages (stored in /data/panel.json, read by run.sh). Everything
-# except the account login (email/password) lives here now, not in the Configuration tab.
-EDITABLE_OPTS = {
-    # NB: expose_mqtt now lives in the add-on options (Configuration tab / set by the integration),
-    # not here — so it can be provisioned by the Enabot integration via Supervisor.
-    "video": {"type": "bool", "default": True, "label": "Video"},
-    "audio": {"type": "bool", "default": True, "label": "Audio (listen — best-effort)"},
-    "talk": {"type": "bool", "default": False, "label": "Talk (speak to the robot)"},
-    "video_max_height": {"type": "int", "default": 720, "label": "Video max height (px)"},
-    "video_fps": {"type": "int", "default": 20, "label": "Video FPS"},
-    "video_bitrate": {"type": "int", "default": 2500, "label": "Video bitrate (kbps, 0 = uncapped)"},
-    "video_preset": {"type": "select",
-                     "choices": ["ultrafast", "superfast", "veryfast", "faster", "fast"],
-                     "default": "ultrafast", "label": "Video encoder preset"},
-    "audio_codec": {"type": "select", "choices": [8, 9], "default": 8, "label": "Audio codec"},
-    # log_level lives in the add-on Configuration tab now (not here).
-    "region": {"type": "text", "default": "GB", "label": "Account region"},
-    "host": {"type": "text", "default": "ebox-eu.enabotserverintl.com",
-             "label": "Account server host"},
-    "robot_id": {"type": "int", "default": 0, "label": "Robot id (0 = all robots)"},
-}
+# All add-on settings (account/connection + audio/video processing) now live in the add-on
+# Configuration tab (/data/options.json), read by run.sh — the panel no longer has a Settings dialog.
+# Per-robot settings (video quality, eyes, volume, speed…) are on the robot's detail page.
 
 _robots = {}
 _lock = threading.Lock()
@@ -138,43 +119,6 @@ def _start_mqtt():
 
 
 # --------------------------- operational settings (/data/panel.json) ---------------------------
-def _read_cfg():
-    try:
-        with open(PANEL_CFG) as f:
-            cur = json.load(f)
-    except Exception:
-        cur = {}
-    return {k: cur.get(k, s["default"]) for k, s in EDITABLE_OPTS.items()}
-
-
-def _coerce(k, v):
-    t = EDITABLE_OPTS[k]["type"]
-    if t == "bool":
-        return v is True or str(v).lower() == "true"
-    if t == "int":
-        try:
-            return int(v)
-        except (TypeError, ValueError):
-            return EDITABLE_OPTS[k]["default"]
-    if t == "select" and all(isinstance(c, int) for c in EDITABLE_OPTS[k]["choices"]):
-        try:
-            return int(v)
-        except (TypeError, ValueError):
-            return EDITABLE_OPTS[k]["default"]
-    return v
-
-
-def _save_cfg(patch):
-    cur = _read_cfg()
-    for k, v in patch.items():
-        if k in EDITABLE_OPTS:
-            cur[k] = _coerce(k, v)
-    with open(PANEL_CFG, "w") as f:
-        json.dump(cur, f)
-    log("[panel] saved /data/panel.json — restarting add-on to apply")
-    threading.Thread(target=_restart_self, daemon=True).start()
-
-
 def _restart_self():
     time.sleep(1)
     try:
@@ -347,8 +291,6 @@ class Handler(BaseHTTPRequestHandler):
         if path.endswith("/api/robots"):
             with _lock:
                 return self._send(200, json.dumps(list(_robots.values())))
-        if path.endswith("/api/options"):
-            return self._send(200, json.dumps({"values": _read_cfg(), "schema": EDITABLE_OPTS}))
         if path.endswith("/api/account"):
             return self._send(200, json.dumps({"email": EMAIL}))
         if path.endswith("/api/snapshot"):
@@ -487,13 +429,6 @@ class Handler(BaseHTTPRequestHandler):
             _client.publish("%s/%s" % (node, suffix), str(body.get("payload", "")))
             log("[panel] cmd %s/%s = %s" % (node, suffix, body.get("payload", "")))
             return self._send(200, json.dumps({"ok": True}))
-        if path.endswith("/api/options"):
-            try:
-                _save_cfg(body.get("options", {}))
-                return self._send(200, json.dumps({"ok": True, "restarting": True}))
-            except Exception as e:
-                log("[panel] save options failed:", e)
-                return self._send(500, json.dumps({"error": str(e)}))
         if path.endswith("/api/pair/start"):
             try:
                 return self._send(200, json.dumps(
@@ -617,8 +552,7 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 <header>
   <span><span id="title" onclick="goBack()" style="cursor:pointer">🤖 EBO</span>
         <span id="acct" style="font-size:12px;color:#8a929a;font-weight:400"></span></span>
-  <span><button class="btn" id="addbtn" onclick="openAdd()">+ Add robot</button>
-        <button class="btn" onclick="openOpts()">⚙ Settings</button></span>
+  <span><button class="btn" id="addbtn" onclick="openAdd()">+ Add robot</button></span>
 </header>
 <div id="view"></div>
 
@@ -649,14 +583,6 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
   <label>Video quality</label><select id="fs-vq" onchange="if(fsNode)cmd(fsNode,'video_quality/set',this.value)">${''}</select>
   <div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn pri" onclick="document.getElementById('fsopts').close()">Done</button></div>
   <div class="note">More actions (talk, listen, recording, snapshot, patrol) coming soon.</div>
-</div></dialog>
-
-<dialog id="opts"><div class="in">
-  <h3>Add-on settings</h3><div id="optform"></div>
-  <div class="row" style="justify-content:flex-end;margin-top:16px">
-    <button class="btn" onclick="document.getElementById('opts').close()">Cancel</button>
-    <button class="btn pri" onclick="saveOpts()">Save &amp; restart</button></div>
-  <div class="note">Saving restarts the add-on (brief interruption).</div>
 </div></dialog>
 
 <dialog id="add"><div class="in">
@@ -1156,26 +1082,6 @@ function updateValues(){
 }
 async function refresh(){
   try{ ROBOTS = await (await fetch(B+'/api/robots')).json(); render(); }catch(e){}
-}
-async function openOpts(){
-  const d = await (await fetch(B+'/api/options')).json(); const sc=d.schema, v=d.values;
-  let h='';
-  for(const k in sc){const s=sc[k];
-    h+=`<label>${s.label||k}</label>`;
-    if(s.type==='bool') h+=`<select id="o-${k}"><option ${v[k]?'selected':''}>true</option><option ${!v[k]?'selected':''}>false</option></select>`;
-    else if(s.type==='select') h+=`<select id="o-${k}">${s.choices.map(c=>`<option ${c==v[k]?'selected':''}>${c}</option>`).join('')}</select>`;
-    else if(s.type==='text') h+=`<input id="o-${k}" type="text" value="${v[k]??''}">`;
-    else h+=`<input id="o-${k}" type="number" value="${v[k]??''}">`;
-  }
-  document.getElementById('optform').innerHTML=h;
-  document.getElementById('opts').showModal();
-}
-async function saveOpts(){
-  const d = await (await fetch(B+'/api/options')).json(); const sc=d.schema; const out={};
-  for(const k in sc){const el=document.getElementById('o-'+k); if(!el)continue;
-    out[k] = sc[k].type==='bool' ? (el.value==='true') : el.value;}
-  await fetch(B+'/api/options',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({options:out})});
-  document.getElementById('opts').close(); alert('Saved. The add-on is restarting…');
 }
 let pairTimer=null;
 function openAdd(){
