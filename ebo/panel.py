@@ -581,11 +581,15 @@ input[type=range]{width:100%}
 /* driving controls container (dual sticks or a single joystick, chosen in fullscreen Settings) */
 #fs-drive{position:absolute;inset:0;z-index:2;pointer-events:none}
 #fs-drive .stick,#fs-drive .joy{pointer-events:auto}
-.stick{position:absolute;bottom:28px;width:150px;height:150px;border-radius:50%;touch-action:none;user-select:none;
-  -webkit-user-select:none;background:radial-gradient(circle at 50% 45%,#ffffff22,#00000055);border:1px solid #ffffff1f;backdrop-filter:blur(3px)}
+/* one-axis sticks are slim tracks (no need for a full circle): vertical = tall+narrow, horiz = wide+short */
+.stick{position:absolute;bottom:30px;touch-action:none;user-select:none;-webkit-user-select:none;
+  background:linear-gradient(#ffffff1e,#00000055);border:1px solid #ffffff1f;backdrop-filter:blur(3px)}
+.stick[data-axis=v]{width:88px;height:210px;border-radius:44px}
+.stick[data-axis=h]{width:210px;height:88px;border-radius:44px}
 .fs-lstick{left:28px}.fs-rstick{right:28px}
-.fs-single{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);width:200px;height:200px;
+.fs-single{position:absolute;bottom:26px;width:200px;height:200px;border-radius:50%;
   background:radial-gradient(circle at 50% 42%,#ffffff26,#00000055);backdrop-filter:blur(3px)}
+.fs-single.left{left:28px}.fs-single.center{left:50%;transform:translateX(-50%)}.fs-single.right{right:28px}
 .fs-single .joy-knob{width:76px;height:76px;margin:-38px 0 0 -38px}
 .stick .joy-knob{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;
   background:radial-gradient(circle at 40% 33%,#5a97ff,#2b6cff);box-shadow:0 3px 12px #0009;pointer-events:none;transition:transform .06s ease-out}
@@ -633,7 +637,12 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
     <option value="joy">Single joystick</option>
   </select>
   <label id="fs-swaprow" style="display:flex;align-items:center;gap:8px;margin-top:10px">
-    <input type="checkbox" id="fs-swap" style="width:auto" onchange="setFsSwap(this.checked)"> Swap sides (steer left / drive right)
+    <input type="checkbox" id="fs-swap" style="width:auto" onchange="setFsSwap(this.checked)"> Swap the two sticks (steer on the left, drive on the right)
+  </label>
+  <label id="fs-joyrow" style="display:none">Joystick side
+    <select id="fs-joyside" onchange="setFsJoySide(this.value)">
+      <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+    </select>
   </label>
   <label>Speed (<span id="fs-spd-v">60</span>)</label>
   <input id="fs-spd" type="range" min="1" max="100" value="60" oninput="driveSpeed=+this.value;document.getElementById('fs-spd-v').textContent=this.value">
@@ -778,6 +787,7 @@ let fsTimer=null, fsNode=null, fsDX=0, fsDY=0, fsDriveTimer=null;
 // fsDualSwap flips which side drives vs steers. Chosen in the fullscreen Settings menu.
 let fsCtrlMode = localStorage.getItem('ebo_fsctrl') || 'dual';
 let fsDualSwap = localStorage.getItem('ebo_fsswap') === '1';
+let fsJoySide  = localStorage.getItem('ebo_fsjoyside') || 'left';   // single-joystick side
 // fullscreen top bar: battery/signal/video on the LEFT (like the video overlay), minimal actions on
 // the RIGHT — Laser, Night vision (soon), Return to base, Settings. Talk/listen/record/snapshot/
 // patrol will join the action row later.
@@ -808,7 +818,8 @@ function initStick(el){
     if(axis==='v'){ dx=0; dy=Math.max(-1,Math.min(1,dy)); fsDY=dy; }
     else { dy=0; dx=Math.max(-1,Math.min(1,dx)); fsDX=dx; }
     knob.style.transform='translate('+(dx*R*0.6)+'px,'+(dy*R*0.6)+'px)'; };
-  const down=e=>{ const b=el.getBoundingClientRect(); cx=b.left+b.width/2; cy=b.top+b.height/2; R=b.width/2;
+  const down=e=>{ const b=el.getBoundingClientRect(); cx=b.left+b.width/2; cy=b.top+b.height/2;
+    R = (axis==='v') ? b.height/2 : b.width/2;      // range along the stick's own (single) axis
     el.classList.add('drag'); try{el.setPointerCapture(e.pointerId);}catch(x){} aim(e.clientX,e.clientY);
     if(!fsDriveTimer) fsDriveTimer=setInterval(_fsDriveTick,120); _fsDriveTick(); e.preventDefault(); };
   const move=e=>{ if(!el.classList.contains('drag')) return; aim(e.clientX,e.clientY); e.preventDefault(); };
@@ -827,7 +838,7 @@ function renderFsControls(node){
   const d=document.getElementById('fs-drive'); if(!d) return;
   fsDX=0; fsDY=0; if(fsDriveTimer){clearInterval(fsDriveTimer);fsDriveTimer=null;}
   if(fsCtrlMode==='joy'){
-    d.innerHTML=`<div class="joy fs-single" data-node="${node}"><div class="joy-knob"></div></div>`;
+    d.innerHTML=`<div class="joy fs-single ${fsJoySide}" data-node="${node}"><div class="joy-knob"></div></div>`;
     initJoysticks();
   } else {
     const leftAxis = fsDualSwap?'h':'v', rightAxis = fsDualSwap?'v':'h';
@@ -837,8 +848,10 @@ function renderFsControls(node){
 }
 function setFsCtrl(mode){ fsCtrlMode=mode; localStorage.setItem('ebo_fsctrl',mode); if(fsNode) renderFsControls(fsNode); syncFsOpts(); }
 function setFsSwap(on){ fsDualSwap=!!on; localStorage.setItem('ebo_fsswap',on?'1':'0'); if(fsNode) renderFsControls(fsNode); }
+function setFsJoySide(side){ fsJoySide=side; localStorage.setItem('ebo_fsjoyside',side); if(fsNode) renderFsControls(fsNode); }
 function syncFsOpts(){
-  const sw=document.getElementById('fs-swaprow'); if(sw) sw.style.display = fsCtrlMode==='dual'?'':'none';
+  const sw=document.getElementById('fs-swaprow'); if(sw) sw.style.display = fsCtrlMode==='dual'?'flex':'none';
+  const jr=document.getElementById('fs-joyrow'); if(jr) jr.style.display = fsCtrlMode==='joy'?'':'none';
 }
 function openFsSettings(){
   const d=document.getElementById('fsopts'); const r=ROBOTS.find(x=>x.node===fsNode)||{}, st=r.state||{};
@@ -847,6 +860,7 @@ function openFsSettings(){
   d.querySelector('#fs-spd').value=driveSpeed;
   document.getElementById('fs-ctrl').value=fsCtrlMode;
   document.getElementById('fs-swap').checked=fsDualSwap;
+  document.getElementById('fs-joyside').value=fsJoySide;
   syncFsOpts();
   d.showModal();
 }
