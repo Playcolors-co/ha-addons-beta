@@ -910,13 +910,7 @@ class Bridge:
         # telemetry to keep the noise down. This is how we find the mic-enable trigger command.
         if mid != OP_TELEMETRY:
             try:
-                log("[rtm-raw] id=%s %s" % (mid, json.dumps(data, separators=(",", ":"))),
-                    level="debug")
-            except Exception:
-                pass
-        if mid in (104052, 104054, 104056, 104058, 104061, 104062):   # TEMP: capture eyes protocol
-            try:
-                log("[eyes-raw] id=%s %s" % (mid, json.dumps(data, separators=(",", ":"))))
+                log("[rtm-raw] id=%s %s" % (mid, json.dumps(data, separators=(",", ":"))))
             except Exception:
                 pass
         if obj.get("rsid"):
