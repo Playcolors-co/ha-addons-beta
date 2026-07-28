@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.26.49 — tidier robot detail (one speed, clearer sections)
+- **Removed the duplicate speed control.** The detail had two: the browser-side *joystick sensitivity*
+  and the robot's real *Movement speed*. The detail now shows only the robot's **Movement speed**
+  (real state); joystick sensitivity lives in the fullscreen ⚙ → **Controls**, where it belongs.
+- **Reorganised the detail into clear sections**: **Remote control** (joystick + fullscreen),
+  **Driving** (mode · movement speed · collision avoidance), **Camera & display** (video quality ·
+  image style · eyes), **Audio** (speaker volume · two-way call volume), **Recording** (motion rec).
+- Collision avoidance and motion recording are now clean on/off **toggles** (motion rec was two buttons).
+
 ## 0.26.48 — driving settings, just like the Enabot app's fullscreen menu
 - The fullscreen ⚙ menu is now **tabbed like the app** (Settings / Controls / Auxiliary):
   - **Settings**: **Driving mode** (Smooth / Racing), **Movement speed**, **Call volume**.

@@ -1065,13 +1065,12 @@ function detailView(r){
       <button id="d-laser" class="btn ${st.laser==='true'?'pri':''}" onclick="toggleLaser('${r.node}')">Laser ${st.laser==='true'?'ON':'OFF'}</button>
       <button class="btn" onclick="cmd('${r.node}','dock','')">Dock</button>
     </div>
-    <div class="sec"><h4>Drive</h4>
+    <div class="sec"><h4>Remote control</h4>
       <div class="drive">
         ${joystick(r.node)}
         <div class="sp">
-          <label>Speed (${driveSpeed})</label>
-          <input type="range" min="1" max="100" value="${driveSpeed}" oninput="driveSpeed=+this.value;this.previousElementSibling.textContent='Speed ('+this.value+')'">
-          <button class="btn pri" style="margin-top:12px;width:100%" onclick="enterFS('${r.node}')">⛶ Fullscreen</button>
+          <button class="btn pri" style="width:100%" onclick="enterFS('${r.node}')">⛶ Fullscreen</button>
+          <div class="note" style="font-size:11px;color:#8a929a;margin-top:10px">Joystick sensitivity is in the fullscreen ⚙ menu → Controls.</div>
         </div>
       </div>
       <div class="note" style="font-size:11px;color:#8a929a;margin-top:8px">Drag the joystick to drive: up = forward, sides = turn, diagonal = curve. The camera must be on to see the live view.</div>
@@ -1082,20 +1081,21 @@ function detailView(r){
       <input type="range" min="1" max="100" value="${st.speed??50}" onchange="cmd('${r.node}','speed/set',this.value)">
       <label class="tgl"><span>Collision avoidance</span>
         <input type="checkbox" ${st.avoid_obstacle==='true'?'checked':''} onchange="cmd('${r.node}','avoid_obstacle/set',this.checked?'on':'off')"></label>
-      <div class="note" style="font-size:11px;color:#8a929a;margin-top:6px">Same settings as the Enabot app's fullscreen menu.</div>
     </div>
-    <div class="sec"><h4>Robot settings</h4>
+    <div class="sec"><h4>Camera &amp; display</h4>
       <label>Video quality</label><select onchange="cmd('${r.node}','video_quality/set',this.value)">${opt(VQ,st.video_quality)}</select>
       <label>Image style</label><select onchange="cmd('${r.node}','image_style/set',this.value)">${opt(IS,st.image_style)}</select>
       <label>Eyes</label><select onchange="cmd('${r.node}','eyes/set',this.value)">${opt(EY,st.eyes)}</select>
-      <label>Volume (${st.volume??st.playback_volume??'—'})</label>
+    </div>
+    <div class="sec"><h4>Audio</h4>
+      <label>Volume — speaker (${st.volume??st.playback_volume??'—'})</label>
       <input type="range" min="0" max="100" value="${st.volume??st.playback_volume??50}" onchange="cmd('${r.node}','volume/set',this.value)">
-      <label>Call volume (${st.talkback_volume??'—'})</label>
+      <label>Call volume — two-way talk (${st.talkback_volume??'—'})</label>
       <input type="range" min="0" max="100" value="${st.talkback_volume??50}" onchange="cmd('${r.node}','talkback_volume/set',this.value)">
-      <div class="row">
-        <button class="btn" onclick="cmd('${r.node}','sports_record/set','on')">Motion rec ON</button>
-        <button class="btn" onclick="cmd('${r.node}','sports_record/set','off')">OFF</button>
-      </div>
+    </div>
+    <div class="sec"><h4>Recording</h4>
+      <label class="tgl"><span>Motion recording</span>
+        <input type="checkbox" ${st.sports_record==='true'?'checked':''} onchange="cmd('${r.node}','sports_record/set',this.checked?'on':'off')"></label>
     </div>
     <div class="row" style="margin-top:14px"><button class="btn danger" onclick="removeRobot('${r.node}')">🗑 Remove from account</button></div>
   </div>`;
