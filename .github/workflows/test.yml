@@ -12,7 +12,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run test suite
-        working-directory: ebo_air2
+        working-directory: ebo
         run: |
           pip install -r tests/requirements-test.txt
           python -m pytest tests/ -v

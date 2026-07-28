@@ -13,11 +13,11 @@ jobs:
           python-version: "3.11"
       - run: pip install ruff bandit pip-audit
       - name: Lint (ruff)
-        working-directory: ebo_air2
+        working-directory: ebo
         run: ruff check .
       - name: Security SAST (bandit, medium+)
-        working-directory: ebo_air2
+        working-directory: ebo
         run: bandit -r . -c .bandit -ll
       - name: Dependency CVE audit (pip-audit)
-        working-directory: ebo_air2
+        working-directory: ebo
         run: pip-audit -r tests/requirements-runtime.txt
