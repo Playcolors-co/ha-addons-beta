@@ -47,6 +47,8 @@ ALLOWED_CMDS = {
     "video_quality/set", "image_style/set", "volume/set", "talkback_volume/set",
     "speed/set", "sports_record/set", "call_rec/set", "eyes/set",
     "move_mode/set", "avoid_obstacle/set", "night_vision/set",
+    "patrol/start", "patrol/stop", "patrol/route/set",
+    "route/record/start", "route/record/stop", "route/save", "route/delete",
     # raw opcode escape hatch for AI/automation (and the eyes protocol): {"id":<op>,"data":{...}}
     "cmd",
 }
@@ -557,6 +559,14 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 .tabs{display:flex;gap:6px;margin:0 0 4px;border-bottom:1px solid #0001;padding-bottom:2px}
 .tab{flex:1;border:0;background:transparent;color:#8a929a;font-size:13px;font-weight:600;padding:8px 4px;cursor:pointer;border-bottom:2px solid transparent}
 .tab.on{color:inherit;border-bottom-color:#2b6cff}
+/* routes (teach & repeat) */
+.routes{display:flex;flex-direction:column;gap:8px}
+.rrow{display:flex;align-items:center;gap:8px}
+.rrow .rn{flex:1;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrow .btn{padding:6px 12px}
+/* fullscreen record button: red + pulsing while recording */
+.fs-ic.rec{background:#c0392b;color:#fff;animation:recpulse 1.2s ease-in-out infinite}
+@keyframes recpulse{0%,100%{opacity:1}50%{opacity:.45}}
 </style></head><body>
 <header>
   <span><span id="title" onclick="goBack()" style="cursor:pointer">🤖 EBO</span>
@@ -617,7 +627,18 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
     <input id="fs-spd" type="range" min="1" max="100" value="60" oninput="driveSpeed=+this.value;document.getElementById('fs-spd-v').textContent=this.value">
   </div>
   <div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn pri" onclick="document.getElementById('fsopts').close()">Done</button></div>
-  <div class="note">More actions (talk, listen, recording, snapshot, patrol) coming soon.</div>
+  <div class="note">More actions (talk, listen, snapshot) coming soon.</div>
+</div></dialog>
+
+<dialog id="routesave"><div class="in">
+  <h3>Save route</h3>
+  <label>Route name</label>
+  <input id="rs-name" type="text" placeholder="e.g. Living-room loop">
+  <div class="row" style="justify-content:flex-end;margin-top:16px;gap:8px">
+    <button class="btn" onclick="document.getElementById('routesave').close()">Discard</button>
+    <button class="btn pri" onclick="saveRoute()">Save</button>
+  </div>
+  <div class="note">Saves the path you just drove, so you can repeat it later from the robot's Routes list.</div>
 </div></dialog>
 
 <dialog id="add"><div class="in">
@@ -708,6 +729,44 @@ function cycleNight(node){
   updateNightUI(node);
   cmd(node,'night_vision/set', next);
 }
+// --- Routes: teach-and-repeat. The list + replay/delete live in the detail; recording (drive to teach
+// a path) starts from the fullscreen ⏺ button. ---
+function routesHtml(r){
+  const st=r.state||{}, routes=st.routes||[];
+  if(!routes.length) return '<div class="note" style="color:#8a929a">No saved routes yet.</div>';
+  return '<div class="routes">'+routes.map(rt=>{
+    const nm=esc(rt.name).replace(/'/g,"\\'");
+    return `<div class="rrow"><span class="rn">${esc(rt.name)}</span>
+      <button class="btn pri" onclick="replayRoute('${r.node}','${nm}')">▶ Repeat</button>
+      <button class="btn" onclick="delRoute('${r.node}',${rt.id})" title="Delete route">🗑</button></div>`;
+  }).join('')+'</div>';
+}
+function replayRoute(node,name){ cmd(node,'patrol/route/set',name); setTimeout(()=>cmd(node,'patrol/start',''),350); }
+function delRoute(node,id){ if(confirm('Delete this route?')){ cmd(node,'route/delete',''+id); } }
+// recording state (optimistic, like the laser)
+let _recOptim={};
+function recState(node){ const r=ROBOTS.find(x=>x.node===node)||{}, st=r.state||{}, real=(st.route_recording==='true');
+  const o=_recOptim[node];
+  if(o){ if(real===o.val || Date.now()>o.until){ delete _recOptim[node]; return real; } return o.val; }
+  return real; }
+function updateRecUI(node){ const on=recState(node); const b=document.getElementById('fs-rec');
+  if(b){ b.className='fs-ic'+(on?' rec':''); b.title=on?'Stop recording — then name & save':'Record a route (drive to teach a path)'; } }
+function recordRoute(node){
+  if(recState(node)){
+    _recOptim[node]={val:false,until:Date.now()+8000}; updateRecUI(node);
+    cmd(node,'route/record/stop','');
+    setTimeout(()=>openRouteSave(node), 1500);   // give the robot a moment to hand back the path
+  } else {
+    _recOptim[node]={val:true,until:Date.now()+8000}; updateRecUI(node);
+    cmd(node,'route/record/start','');
+  }
+}
+let _rsNode=null;
+function openRouteSave(node){ _rsNode=node; const i=document.getElementById('rs-name'); if(i) i.value='';
+  const d=document.getElementById('routesave'); if(d){ d.showModal(); if(i) i.focus(); } }
+function saveRoute(){ const i=document.getElementById('rs-name'); const name=(i&&i.value.trim())||'';
+  if(_rsNode) cmd(_rsNode,'route/save', name);
+  const d=document.getElementById('routesave'); if(d) d.close(); }
 // Enter detail/drive → camera/set on. Bridge-side this JOINS the Agora RTC channel, which WAKES
 // the robot exactly like opening the app (real viewer present). goBack → connected/set off leaves
 // the channel so the robot goes back to standby (ZZ). No unreliable isSleeping opcode dance.
@@ -811,6 +870,7 @@ function fsTop(node){
     <div class="fs-actions">
       <button class="fs-ic ${laserOn?'on':''}" id="fs-laser" onclick="toggleLaser('${node}')" title="Laser">•</button>
       <button class="fs-ic" id="fs-night" onclick="cycleNight('${node}')" title="Day/Night vision">${NV_ICON[st.night_vision]||'🌗'}</button>
+      <button class="fs-ic ${st.route_recording==='true'?'rec':''}" id="fs-rec" onclick="recordRoute('${node}')" title="Record a route (drive to teach a path)">⏺</button>
       <button class="fs-ic" onclick="cmd('${node}','dock','')" title="Return to base">⌂</button>
       <button class="fs-ic" onclick="openFsSettings()" title="Settings">⚙</button>
     </div>`;
@@ -1132,8 +1192,12 @@ function detailView(r){
       <input type="range" min="0" max="100" value="${st.talkback_volume??50}" onchange="cmd('${r.node}','talkback_volume/set',this.value)">
     </div>
     <div class="sec"><h4>Recording</h4>
-      <label class="tgl"><span>Motion recording</span>
+      <label class="tgl"><span>Motion recording — logs the robot's activity (not a path)</span>
         <input type="checkbox" ${st.sports_record==='true'?'checked':''} onchange="cmd('${r.node}','sports_record/set',this.checked?'on':'off')"></label>
+    </div>
+    <div class="sec"><h4>Routes — teach &amp; repeat</h4>
+      <div id="d-routes">${routesHtml(r)}</div>
+      <div class="note" style="font-size:11px;color:#8a929a;margin-top:8px">Record a new route from the ⛶ fullscreen view: tap ⏺ to start, drive the path, tap ⏺ again to stop, then name &amp; save it. Repeat any saved route here.</div>
     </div>
     <div class="row" style="margin-top:14px"><button class="btn danger" onclick="removeRobot('${r.node}')">🗑 Remove from account</button></div>
   </div>`;
@@ -1159,6 +1223,8 @@ function updateValues(){
     const cb=document.getElementById('d-cam'); if(cb){ cb.className='btn '+(cam?'pri':''); cb.textContent=cam?'Camera ON':'Camera OFF'; cb.setAttribute('onclick',`cmd('${r.node}','camera/set','${cam?'off':'on'}')`); }
     updateLaserUI(SEL);                                    // keep the laser toggle (detail + fullscreen) in sync
     updateNightUI(SEL);                                    // keep the day/night button icon in sync
+    updateRecUI(SEL);                                      // keep the route-record button in sync
+    const rc=document.getElementById('d-routes'); if(rc) rc.innerHTML=routesHtml(r);   // live routes list
     if(document.getElementById('fs').style.display==='block'){   // fullscreen open: refresh its top-bar info
       const fb=document.getElementById('fs-bat'); if(fb) fb.textContent='🔋 '+(st.battery??'—')+'%';
       const fw=document.getElementById('fs-wifi'); if(fw) fw.textContent='📶 '+(st.wifi??'—');

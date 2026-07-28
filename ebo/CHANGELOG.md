@@ -1,5 +1,19 @@
 # Changelog — Enabot integration
 
+## 0.26.53 — Routes: teach & repeat (record a path, replay it)
+- New **Routes** feature, reverse-engineered from the app (the Air 2 firmware supports it even though
+  the current app hides it): **drive to teach a path, then have the robot repeat it.**
+  - **Record** from the fullscreen ⛶ view: the ⏺ button starts recording (opcode 103201), you drive the
+    path, tap ⏺ again to stop (103205); the robot hands back the recorded route (103206) and you give it
+    a name to save (104003).
+  - **Repeat / delete** any saved route from the robot detail's **Routes** section (patrol 103061 /
+    delete 104005). Routes list comes from the robot (104001/104002).
+  - Clarified that **"Motion recording"** is an activity log, *not* a path recorder.
+- NOTE: recording video *during* a replay isn't in this build — the robot has no manual "record video"
+  command, so that has to be done add-on-side (capturing the stream to a file); it's the next step.
+- This is built to the app's protocol but the record/replay path **moves the robot**, so it needs live
+  testing on a real robot.
+
 ## 0.26.52 — dual-stick turns continuously (matches the official app)
 - **Fixed steering**: holding the dual-stick to turn now makes the robot **keep turning**, instead of
   jerking ~90° and then going straight. The move command (opcode 101007) carries a `buttons` flag that
