@@ -46,7 +46,7 @@ ALLOWED_CMDS = {
     "say", "talk",
     "video_quality/set", "image_style/set", "volume/set", "talkback_volume/set",
     "speed/set", "sports_record/set", "call_rec/set", "eyes/set",
-    "move_mode/set", "avoid_obstacle/set",
+    "move_mode/set", "avoid_obstacle/set", "night_vision/set",
     # raw opcode escape hatch for AI/automation (and the eyes protocol): {"id":<op>,"data":{...}}
     "cmd",
 }
@@ -644,7 +644,8 @@ const B = window.location.pathname.replace(/\/$/,'');
 (function(){ const s=document.createElement('script'); s.src=B+'/hls.min.js'; s.async=true; document.head.appendChild(s); })();  // fluid HLS player
 const VQ=["Low","Medium","High"], IS=["Standard","Vivid","Soft"],
       EY=["Dynamic 1","Dynamic 2","Dynamic 3","Dynamic 4","Dynamic 5","Dynamic 6","Clock 1","Clock 2","Custom"],
-      DM=["Smooth","Racing"];   // driving mode (app: Driving Mode Smooth/Racing)
+      DM=["Smooth","Racing"],   // driving mode (app: Driving Mode Smooth/Racing)
+      NV=["Auto","Day","Night"], NV_ICON={Auto:'🌗',Day:'☀️',Night:'🌙'};  // day/night vision (app btnDayNight)
 let ROBOTS=[], SEL=null;
 async function cmd(node,suffix,payload){
   await fetch(B+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -680,6 +681,26 @@ function toggleLaser(node){
   laserPending[node]={val:nv, until:Date.now()+6000};   // optimistic feedback, held until telemetry agrees
   updateLaserUI(node);
   cmd(node,'laser/set', nv?'on':'off');
+}
+// Day/night vision (app's fullscreen day/night button = shootMode 0 Auto / 1 Day / 2 Night).
+let nightPending={};
+function nightMode(node){
+  const r=ROBOTS.find(x=>x.node===node)||{}, st=r.state||{};
+  const real=NV.includes(st.night_vision)?st.night_vision:'Auto';
+  const p=nightPending[node];
+  if(p){ if(real===p.val || Date.now()>=p.until){ delete nightPending[node]; return real; } return p.val; }
+  return real;
+}
+function updateNightUI(node){
+  const m=nightMode(node);
+  const fb=document.getElementById('fs-night');
+  if(fb){ fb.textContent=NV_ICON[m]||'🌗'; fb.title='Day/Night vision: '+m+' (tap to change)'; fb.className='fs-ic'+(m==='Night'?' on':''); }
+}
+function cycleNight(node){
+  const next=NV[(NV.indexOf(nightMode(node))+1)%NV.length];
+  nightPending[node]={val:next, until:Date.now()+8000};   // optimistic; released when telemetry agrees
+  updateNightUI(node);
+  cmd(node,'night_vision/set', next);
 }
 // Enter detail/drive → camera/set on. Bridge-side this JOINS the Agora RTC channel, which WAKES
 // the robot exactly like opening the app (real viewer present). goBack → connected/set off leaves
@@ -778,7 +799,7 @@ function fsTop(node){
     </div>
     <div class="fs-actions">
       <button class="fs-ic ${laserOn?'on':''}" id="fs-laser" onclick="toggleLaser('${node}')" title="Laser">•</button>
-      <button class="fs-ic disabled" title="Night/day vision (coming soon)">🌙</button>
+      <button class="fs-ic" id="fs-night" onclick="cycleNight('${node}')" title="Day/Night vision">${NV_ICON[st.night_vision]||'🌗'}</button>
       <button class="fs-ic" onclick="cmd('${node}','dock','')" title="Return to base">⌂</button>
       <button class="fs-ic" onclick="openFsSettings()" title="Settings">⚙</button>
     </div>`;
@@ -1083,6 +1104,7 @@ function detailView(r){
         <input type="checkbox" ${st.avoid_obstacle==='true'?'checked':''} onchange="cmd('${r.node}','avoid_obstacle/set',this.checked?'on':'off')"></label>
     </div>
     <div class="sec"><h4>Camera &amp; display</h4>
+      <label>Night vision</label><select onchange="cmd('${r.node}','night_vision/set',this.value)">${opt(NV,st.night_vision)}</select>
       <label>Video quality</label><select onchange="cmd('${r.node}','video_quality/set',this.value)">${opt(VQ,st.video_quality)}</select>
       <label>Image style</label><select onchange="cmd('${r.node}','image_style/set',this.value)">${opt(IS,st.image_style)}</select>
       <label>Eyes</label><select onchange="cmd('${r.node}','eyes/set',this.value)">${opt(EY,st.eyes)}</select>
@@ -1120,6 +1142,7 @@ function updateValues(){
     const m=document.getElementById('d-meta'); if(m) m.textContent=`${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}`;
     const cb=document.getElementById('d-cam'); if(cb){ cb.className='btn '+(cam?'pri':''); cb.textContent=cam?'Camera ON':'Camera OFF'; cb.setAttribute('onclick',`cmd('${r.node}','camera/set','${cam?'off':'on'}')`); }
     updateLaserUI(SEL);                                    // keep the laser toggle (detail + fullscreen) in sync
+    updateNightUI(SEL);                                    // keep the day/night button icon in sync
     if(document.getElementById('fs').style.display==='block'){   // fullscreen open: refresh its top-bar info
       const fb=document.getElementById('fs-bat'); if(fb) fb.textContent='🔋 '+(st.battery??'—')+'%';
       const fw=document.getElementById('fs-wifi'); if(fw) fw.textContent='📶 '+(st.wifi??'—');

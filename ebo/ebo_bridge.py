@@ -81,7 +81,8 @@ OP_CALL_REC = 103071    # auto-record calls: {"callAutoRecording": int 0/1}
 OP_UPLOAD_CLOUD = 104099  # upload recordings to cloud: {"videoUploadCloud": bool}
 OP_TALKBACK_VOL = 102031  # {"talkbackVolume": int 0..100}
 OP_MOVE_MODE = 103011   # {"moveMode": int}
-OP_SHOOT_MODE = 102035  # {"shootMode": int}  (photo/video)
+OP_NIGHT_MODE = 102035  # {"shootMode": int} — the Air 2's day/night vision mode (0 Auto, 1 Day, 2 Night)
+OP_SHOOT_MODE = OP_NIGHT_MODE  # legacy alias
 OP_PLAY_MOTION = 103005  # {"cycleMode": int, "moveId": int} — preset motion (MOVES)
 OP_PLAY_VOICE = 103007   # {"cycleMode": int, "voiceId": int}
 OP_DOCK = 103043         # manual return-to-base / start charging: {"startUp": bool} (MOVES)
@@ -116,7 +117,10 @@ OP_AVOID_OBSTACLE = 103045
 # value tables (from the app's UI): name shown in HA -> integer sent to the robot
 VIDEO_QUALITY_MAP = {"Low": 1, "Medium": 2, "High": 3}
 IMAGE_STYLE_MAP = {"Standard": 0, "Vivid": 1, "Soft": 2}
-SHOOT_MODE_MAP = {"Normal": 0, "Wide": 1, "Follow": 2}
+# Day/night vision (the app's fullscreen day/night button = shootMode). Confirmed from the app's
+# LiveDayNightLayout: 0 = Auto (autoIv), 1 = Day (dayIv), 2 = Night (nightIv). Echoed in the settings
+# report, so we can read it back.
+NIGHT_MODE_MAP = {"Auto": 0, "Day": 1, "Night": 2}
 # Driving mode = the app's "Driving Mode" radio (Smooth Mode / Racing Mode). moveMode 0/1.
 MOVE_MODE_MAP = {"Smooth": 0, "Racing": 1}
 # steeringSensitivity has 4 levels (0..3) in the app; names are our own (the app's strings are obfuscated)
@@ -1160,7 +1164,7 @@ class Bridge:
                    "wake", "say", "talk", "audio_tx/set", "volume/set", "talkback_volume/set",
                    "sports_record/set", "call_rec/set", "upload_cloud/set", "dock",
                    "patrol/route/set", "patrol/start", "camera/set", "connected/set",
-                   "rotate/set", "video_quality/set", "image_style/set", "shoot_mode/set",
+                   "rotate/set", "video_quality/set", "image_style/set", "night_vision/set",
                    "move_mode/set", "eyes/set", "roaming/set", "ai_track", "motion/set",
                    "avoid_obstacle/set", "steering/set", "pickup_check/set", "desktop_mode/set",
                    "abnormal_reminder/set",
@@ -1302,10 +1306,10 @@ class Bridge:
             "name": "EBO image style", "command_topic": "%s/image_style/set" % NODE,
             "state_topic": st, "value_template": "{{ value_json.image_style | default('') }}",
             "options": list(IMAGE_STYLE_MAP.keys()), "icon": "mdi:image-filter-vintage"})
-        self._disc("select", "shoot_mode", {
-            "name": "EBO shoot mode", "command_topic": "%s/shoot_mode/set" % NODE,
-            "state_topic": st, "value_template": "{{ value_json.shoot_mode | default('') }}",
-            "options": list(SHOOT_MODE_MAP.keys()), "icon": "mdi:camera-iris"})
+        self._disc("select", "night_vision", {
+            "name": "EBO night vision", "command_topic": "%s/night_vision/set" % NODE,
+            "state_topic": st, "value_template": "{{ value_json.night_vision | default('') }}",
+            "options": list(NIGHT_MODE_MAP.keys()), "icon": "mdi:weather-night"})
         self._disc("select", "move_mode", {
             "name": "EBO driving mode", "command_topic": "%s/move_mode/set" % NODE,
             "state_topic": st, "value_template": "{{ value_json.move_mode | default('') }}",
@@ -1410,7 +1414,7 @@ class Bridge:
         c.subscribe("%s/connected/set" % NODE)
         # extra controls
         for topic in ("rotate/set", "video_quality/set", "image_style/set",
-                      "shoot_mode/set", "move_mode/set", "avoid_obstacle/set", "eyes/set",
+                      "night_vision/set", "move_mode/set", "avoid_obstacle/set", "eyes/set",
                       "roaming/set", "ai_track", "motion/set", "voice/set", "ai_ask"):
             c.subscribe("%s/%s" % (NODE, topic))
         self._publish_camera_state()
@@ -1498,8 +1502,8 @@ class Bridge:
                 # robot never echoes this field → reflect intent optimistically
                 self.settings["imageStyle"] = iv
                 self._publish_telemetry()
-            elif topic.endswith("/shoot_mode/set"):
-                self.send(OP_SHOOT_MODE, {"shootMode": SHOOT_MODE_MAP.get(payload, 0)})
+            elif topic.endswith("/night_vision/set"):
+                self.send(OP_NIGHT_MODE, {"shootMode": NIGHT_MODE_MAP.get(payload, 0)})
             elif topic.endswith("/move_mode/set"):
                 self.send(OP_MOVE_MODE, {"moveMode": MOVE_MODE_MAP.get(payload, 0)})
             elif topic.endswith("/eyes/set"):
@@ -1596,7 +1600,7 @@ class Bridge:
             # camera / movement settings (current values feed the selects)
             "video_quality": _rev(VIDEO_QUALITY_MAP, se.get("videoQuality")),
             "image_style": _rev(IMAGE_STYLE_MAP, se.get("imageStyle")),
-            "shoot_mode": _rev(SHOOT_MODE_MAP, se.get("shootMode")),
+            "night_vision": _rev(NIGHT_MODE_MAP, se.get("shootMode")),
             "move_mode": _rev(MOVE_MODE_MAP, se.get("moveMode")),
             # motion / sport settings (MotionSettings, opcode 103022). avoidobstacle is also echoed
             # in the settings blob, so fall back to it when the MotionSettings read hasn't arrived.

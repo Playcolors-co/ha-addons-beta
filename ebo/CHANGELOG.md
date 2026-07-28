@@ -1,5 +1,16 @@
 # Changelog — Enabot integration
 
+## 0.26.50 — day/night vision
+- Added **day/night vision** control, matching the app's fullscreen day/night button. Three modes:
+  **Auto / Day / Night** (the Air 2's `shootMode`, opcode 102035; confirmed 0=Auto, 1=Day, 2=Night
+  from the app's own day/night layout). It's **real state** — read back from the robot's settings
+  report, so the control always shows the current mode.
+- **Fullscreen**: the previously-disabled 🌙 button now works — tap to cycle Auto → Day → Night, with
+  an icon that reflects the current mode (🌗 Auto · ☀️ Day · 🌙 Night).
+- **Detail** (Camera & display) and a **native `select` entity** *Night vision* also expose it.
+- (Note: this repurposes the old, mislabelled "shoot mode" select — on the Air 2 that opcode is the
+  day/night vision, not Normal/Wide/Follow.)
+
 ## 0.26.49 — tidier robot detail (one speed, clearer sections)
 - **Removed the duplicate speed control.** The detail had two: the browser-side *joystick sensitivity*
   and the robot's real *Movement speed*. The detail now shows only the robot's **Movement speed**
