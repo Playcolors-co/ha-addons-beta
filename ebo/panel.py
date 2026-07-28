@@ -518,9 +518,11 @@ input[type=range]{width:100%}
 .fs-info .b{background:#0006;padding:3px 8px;border-radius:8px;backdrop-filter:blur(3px)}
 .fs-info .b.rtc{background:rgba(18,184,134,.55);color:#eafff5}
 .fs-info .b.hls{background:rgba(214,138,0,.6);color:#fff5e0}
-.fs-hlswarn{position:absolute;top:52px;left:50%;transform:translateX(-50%);z-index:3;max-width:92%;
-  background:rgba(176,90,0,.92);color:#fff;font-size:12px;line-height:1.35;padding:7px 12px;border-radius:10px;
-  text-align:center;backdrop-filter:blur(3px)}
+.fs-hlswarn{position:absolute;top:50px;left:50%;transform:translateX(-50%);z-index:3;max-width:calc(100% - 24px);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  background:rgba(176,90,0,.85);color:#fff;font-size:11px;padding:3px 12px;border-radius:12px;
+  text-align:center;backdrop-filter:blur(3px);transition:opacity .5s;opacity:1}
+.fs-hlswarn.fade{opacity:0}
 .connhint{font-size:12px;margin-top:5px;color:#8a929a}
 .connhint.hls{color:#c77d00}
 .fs-actions{display:flex;align-items:center;gap:8px}
@@ -586,7 +588,7 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
   <video id="fsvid" autoplay muted playsinline></video>
   <div class="fs-tap" onclick="toggleFsControls()"></div>
   <div class="fs-top" id="fs-top"></div>
-  <div id="fs-hlswarn" class="fs-hlswarn" style="display:none">⚠ <b>HLS</b> connection — video is delayed ~1&nbsp;s. Fine to watch and steer gently, <b>not</b> for reactive driving. Fluid video (~200&nbsp;ms) is only available on the LAN, or from remote with a relay/VPN.</div>
+  <div id="fs-hlswarn" class="fs-hlswarn" style="display:none">⚠ HLS — video delayed ~1&nbsp;s, not for reactive driving</div>
   <div id="fs-drive"></div>
 </div>
 
@@ -1013,11 +1015,23 @@ function _cleanupVid(v){
   try{ v.removeAttribute('src'); v.load(); }catch(e){}
 }
 // video-mode indicator shown in the top bar (WebRTC·fps, or HLS fallback, or connecting)
+let _hlsWarnTimer=null;
 function _fsBadge(txt, kind){
   const el=document.getElementById('fs-badge2');   // lives inside the top info bar (fsTop)
   if(el){ el.textContent=txt; el.className='b'+(kind==='hls'?' hls':(kind==='webrtc'?' rtc':'')); }
-  const w=document.getElementById('fs-hlswarn');    // show the "HLS is slower" warning only on HLS
-  if(w) w.style.display=(kind==='hls')?'':'none';
+  // Slim one-line "HLS is slower" notice: show briefly, then auto-fade (the amber HLS badge stays as
+  // the persistent indicator). Only re-arm when we (re)enter HLS, not on every stats tick.
+  const w=document.getElementById('fs-hlswarn');
+  if(!w) return;
+  if(kind==='hls'){
+    if(w.dataset.shown!=='1'){                     // first time we go HLS this session
+      w.dataset.shown='1'; w.style.display=''; w.classList.remove('fade');
+      clearTimeout(_hlsWarnTimer);
+      _hlsWarnTimer=setTimeout(()=>{ w.classList.add('fade'); setTimeout(()=>{ w.style.display='none'; },600); }, 5000);
+    }
+  } else {
+    w.style.display='none'; w.classList.remove('fade'); w.dataset.shown='';
+  }
 }
 function _fsWatchStats(v, pc){
   if(v._statTimer) clearInterval(v._statTimer);
@@ -1132,6 +1146,8 @@ async function fsPlay(node){
 let _driveVQ=null;   // video quality saved on entering drive, restored on exit
 function enterFS(node){
   fsNode=node; fsDX=0; fsDY=0;
+  const hw=document.getElementById('fs-hlswarn');   // re-arm the brief HLS notice for this session
+  if(hw){ hw.dataset.shown=''; hw.style.display='none'; hw.classList.remove('fade'); }
   document.getElementById('fs-top').innerHTML=fsTop(node);
   renderFsControls(node);          // dual sticks or single joystick, per the saved preference
   const v=document.getElementById('fsvid');

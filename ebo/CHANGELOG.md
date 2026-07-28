@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.26.59 — slimmer, auto-dismissing HLS notice
+- The HLS "video is delayed" warning was a big multi-line box covering the view. It's now a **slim
+  one-line pill** that **auto-fades after ~5 s** (the amber **HLS** badge stays as the persistent
+  indicator). It re-appears briefly each time you enter fullscreen on HLS.
+
+
 ## 0.26.58 — REVERT the HLS "improvement" (it broke HLS loading)
 - The 0.26.55 remote-HLS tuning was a **regression**: mediamtx `hlsSegmentCount: 3` (a ~3 s playlist)
   together with hls.js `liveMaxLatencyDuration: 4` is an invalid combo — hls.js won't start when the
