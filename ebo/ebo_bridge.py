@@ -104,7 +104,16 @@ VIDEO_QUALITY_MAP = {"Low": 1, "Medium": 2, "High": 3}
 IMAGE_STYLE_MAP = {"Standard": 0, "Vivid": 1, "Soft": 2}
 SHOOT_MODE_MAP = {"Normal": 0, "Wide": 1, "Follow": 2}
 MOVE_MODE_MAP = {"Mode 1": 0, "Mode 2": 1, "Mode 3": 2}
-EYES_MODE_MAP = {"Dynamic": 0, "Clock": 1, "Custom": 2}
+# Eyes/emoji display (opcode 104057). Reconstructed from the Air 2 app: the payload is
+# EyesEmojiModeData {status, mode, dynamicEyes{autoFollow,styleId}, timeEyes{styleId}, customEyes{timeStyle}}.
+# mode 1=Dynamic (styleId 1..6), 2=Clock (styleId 1..2), 3=Custom. The style lists are hardcoded in
+# the app. We expose a single flattened select; each option maps to (mode, styleId).
+EYES_STYLES = {
+    "Dynamic 1": (1, 1), "Dynamic 2": (1, 2), "Dynamic 3": (1, 3),
+    "Dynamic 4": (1, 4), "Dynamic 5": (1, 5), "Dynamic 6": (1, 6),
+    "Clock 1": (2, 1), "Clock 2": (2, 2),
+    "Custom": (3, 1),
+}
 
 
 def _rev(m, v):
@@ -910,7 +919,8 @@ class Bridge:
         # telemetry to keep the noise down. This is how we find the mic-enable trigger command.
         if mid != OP_TELEMETRY:
             try:
-                log("[rtm-raw] id=%s %s" % (mid, json.dumps(data, separators=(",", ":"))))
+                log("[rtm-raw] id=%s %s" % (mid, json.dumps(data, separators=(",", ":"))),
+                    level="debug")
             except Exception:
                 pass
         if obj.get("rsid"):
@@ -1256,7 +1266,7 @@ class Bridge:
             "options": list(MOVE_MODE_MAP.keys()), "icon": "mdi:cog-transfer"})
         self._disc("select", "eyes", {
             "name": "EBO eyes", "command_topic": "%s/eyes/set" % NODE,
-            "options": list(EYES_MODE_MAP.keys()), "optimistic": True, "icon": "mdi:eye"})
+            "options": list(EYES_STYLES.keys()), "optimistic": True, "icon": "mdi:eye"})
         # autonomous roaming
         self._disc("switch", "roaming", {
             "name": "EBO roaming", "command_topic": "%s/roaming/set" % NODE,
@@ -1441,7 +1451,13 @@ class Bridge:
             elif topic.endswith("/move_mode/set"):
                 self.send(OP_MOVE_MODE, {"moveMode": MOVE_MODE_MAP.get(payload, 0)})
             elif topic.endswith("/eyes/set"):
-                self.send(OP_EYES, {"status": 0, "mode": EYES_MODE_MAP.get(payload, 0)})
+                mode, style = EYES_STYLES.get(payload, (1, 1))
+                self.send(OP_EYES, {
+                    "status": 0, "mode": mode,
+                    "dynamicEyes": {"autoFollow": False, "styleId": style if mode == 1 else 1},
+                    "timeEyes": {"styleId": style if mode == 2 else 1},
+                    "customEyes": {"timeStyle": 0},
+                })
             elif topic.endswith("/roaming/set"):
                 on = payload.lower() in ("on", "true", "1")
                 self.send(OP_ROAM, {"isRoamOn": on, "sensitivity": 5})

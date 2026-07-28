@@ -20,7 +20,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         EboSelect(c, entry, "image_style", "Image style", "image_style/set",
                   "image_style", ["Standard", "Vivid", "Soft"], "mdi:image-filter-vintage"),
         EboSelect(c, entry, "eyes", "Eyes", "eyes/set", "eyes",
-                  ["Dynamic", "Clock", "Custom"], "mdi:eye"),
+                  ["Dynamic 1", "Dynamic 2", "Dynamic 3", "Dynamic 4", "Dynamic 5", "Dynamic 6",
+                   "Clock 1", "Clock 2", "Custom"], "mdi:eye"),
     ])
 
 

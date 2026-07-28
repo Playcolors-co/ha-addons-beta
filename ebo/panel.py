@@ -638,7 +638,8 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 <script>
 const B = window.location.pathname.replace(/\/$/,'');
 (function(){ const s=document.createElement('script'); s.src=B+'/hls.min.js'; s.async=true; document.head.appendChild(s); })();  // fluid HLS player
-const VQ=["Low","Medium","High"], IS=["Standard","Vivid","Soft"], EY=["Dynamic","Clock","Custom"];
+const VQ=["Low","Medium","High"], IS=["Standard","Vivid","Soft"],
+      EY=["Dynamic 1","Dynamic 2","Dynamic 3","Dynamic 4","Dynamic 5","Dynamic 6","Clock 1","Clock 2","Custom"];
 let ROBOTS=[], SEL=null;
 async function cmd(node,suffix,payload){
   await fetch(B+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},
