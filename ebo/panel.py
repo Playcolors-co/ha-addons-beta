@@ -557,14 +557,23 @@ input[type=range]{width:100%}
 .db:active{background:#2b6cff;color:#fff}
 .db.up{grid-area:1/2}.db.left{grid-area:2/1}.db.stop{grid-area:2/2;background:#c0392b;color:#fff}.db.right{grid-area:2/3}.db.down{grid-area:3/2}
 .drive .sp{flex:1;min-width:150px}
+/* analog joystick (drag the knob to drive; up=forward, sides=turn, diagonal=curve) */
+.joy{width:170px;height:170px;border-radius:50%;position:relative;flex:none;touch-action:none;user-select:none;-webkit-user-select:none;
+  background:radial-gradient(circle at 50% 42%,#3a4048,#1b2025);border:1px solid #ffffff14;box-shadow:inset 0 2px 10px #0007}
+.joy::before{content:'';position:absolute;inset:20px;border-radius:50%;border:1px dashed #ffffff1f}
+.joy-knob{position:absolute;left:50%;top:50%;width:66px;height:66px;margin:-33px 0 0 -33px;border-radius:50%;
+  background:radial-gradient(circle at 40% 33%,#5a97ff,#2b6cff);box-shadow:0 3px 12px #0009;transition:transform .06s ease-out;pointer-events:none}
+.joy.drag .joy-knob{transition:none}
 /* fullscreen gamepad */
 #fs{position:fixed;inset:0;background:#000;z-index:9999;display:none}
 #fsvid{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;object-fit:contain}
 .fs-tap{position:absolute;inset:0;z-index:1}   /* tap the video to show/hide controls */
 .fsx{position:absolute;top:12px;right:14px;z-index:2;background:#000a;color:#fff;border:0;border-radius:50%;width:42px;height:42px;font-size:18px;cursor:pointer}
-.fs-pad{position:absolute;left:22px;bottom:22px;z-index:2;opacity:.92}
+.fs-pad{position:absolute;left:26px;bottom:26px;z-index:2;opacity:.95}
 .fs-pad .dpad{grid-template-columns:repeat(3,68px);grid-template-rows:repeat(3,68px)}
 .fs-pad .db{background:#ffffff26;color:#fff;backdrop-filter:blur(3px)}
+.fs-pad .joy{width:210px;height:210px;background:radial-gradient(circle at 50% 42%,#ffffff26,#00000055);backdrop-filter:blur(3px)}
+.fs-pad .joy-knob{width:78px;height:78px;margin:-39px 0 0 -39px}
 .fs-act{position:absolute;right:22px;bottom:22px;z-index:2;display:flex;flex-direction:column;gap:10px;opacity:.92}
 .fs-act .btn{background:#ffffff26;color:#fff;backdrop-filter:blur(3px);min-width:120px}
 .fs-sp{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);z-index:2;width:200px;opacity:.9}
@@ -709,6 +718,29 @@ function dpad(node){
     <button class="db down" ${h('back')}>▼</button>
   </div>`;
 }
+// --- analog joystick: drag the knob; vertical = forward/back, horizontal = turn, diagonal = a
+// smooth curve (both axes together). Sends move/vector at ~8 Hz while held, zero on release. ---
+function joystick(node){
+  return `<div class="joy" data-node="${node}"><div class="joy-knob"></div></div>`;
+}
+function initJoysticks(){
+  document.querySelectorAll('.joy').forEach(j=>{
+    if(j._init) return; j._init=true;
+    const knob=j.querySelector('.joy-knob'), node=j.getAttribute('data-node');
+    let cx=0,cy=0,R=1,vx=0,vy=0,timer=null;
+    const tick=()=>{ if(vx||vy) sendVec(node, Math.round(vy*driveSpeed), Math.round(vx*driveSpeed), 0.6); };
+    const aim=(px,py)=>{ let dx=(px-cx)/R, dy=(py-cy)/R; const m=Math.hypot(dx,dy); if(m>1){dx/=m;dy/=m;}
+      vx=dx; vy=dy; knob.style.transform='translate('+(dx*R*0.6)+'px,'+(dy*R*0.6)+'px)'; };
+    const down=e=>{ const b=j.getBoundingClientRect(); cx=b.left+b.width/2; cy=b.top+b.height/2; R=b.width/2;
+      j.classList.add('drag'); try{j.setPointerCapture(e.pointerId);}catch(x){} aim(e.clientX,e.clientY);
+      if(!timer) timer=setInterval(tick,120); tick(); e.preventDefault(); };
+    const move=e=>{ if(!timer) return; aim(e.clientX,e.clientY); e.preventDefault(); };
+    const up=()=>{ vx=vy=0; knob.style.transform='translate(0,0)'; j.classList.remove('drag');
+      if(timer){clearInterval(timer);timer=null;} sendVec(node,0,0,0); };
+    j.addEventListener('pointerdown',down); j.addEventListener('pointermove',move);
+    j.addEventListener('pointerup',up); j.addEventListener('pointercancel',up);
+  });
+}
 // --- fullscreen gamepad: live view fills the screen, controls overlaid ---
 let fsTimer=null;
 function fsActions(node){
@@ -852,8 +884,9 @@ async function fsPlay(node){
 }
 let _driveVQ=null;   // video quality saved on entering drive, restored on exit
 function enterFS(node){
-  document.getElementById('fs-pad').innerHTML=dpad(node);
+  document.getElementById('fs-pad').innerHTML=joystick(node);
   document.getElementById('fs-act').innerHTML=fsActions(node);
+  initJoysticks();
   const v=document.getElementById('fsvid');
   v.setAttribute('data-node',node);                 // keyboard driving reads the node from here
   document.getElementById('fs-sp').value=driveSpeed;
@@ -933,14 +966,14 @@ function detailView(r){
     </div>
     <div class="sec"><h4>Drive</h4>
       <div class="drive">
-        ${dpad(r.node)}
+        ${joystick(r.node)}
         <div class="sp">
           <label>Speed (${driveSpeed})</label>
           <input type="range" min="1" max="100" value="${driveSpeed}" oninput="driveSpeed=+this.value;this.previousElementSibling.textContent='Speed ('+this.value+')'">
-          <button class="btn pri" style="margin-top:12px;width:100%" onclick="enterFS('${r.node}')">⛶ Fullscreen gamepad</button>
+          <button class="btn pri" style="margin-top:12px;width:100%" onclick="enterFS('${r.node}')">⛶ Fullscreen</button>
         </div>
       </div>
-      <div class="note" style="font-size:11px;color:#8a929a;margin-top:8px">Hold a button to move; release to stop. The camera must be on to see the live view.</div>
+      <div class="note" style="font-size:11px;color:#8a929a;margin-top:8px">Drag the joystick to drive: up = forward, sides = turn, diagonal = curve. The camera must be on to see the live view.</div>
     </div>
     <div class="sec"><h4>Robot settings</h4>
       <label>Video quality</label><select onchange="cmd('${r.node}','video_quality/set',this.value)">${opt(VQ,st.video_quality)}</select>
@@ -969,6 +1002,7 @@ function render(force){
   document.getElementById('title').innerHTML = SEL? '‹ EBO' : '🤖 EBO';
   const r = SEL && ROBOTS.find(x=>x.node===SEL);
   document.getElementById('view').innerHTML = r? detailView(r) : listView();
+  initJoysticks();      // wire the analog joystick(s) in the freshly-rendered detail view
 }
 function updateValues(){
   if(SEL){
