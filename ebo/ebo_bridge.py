@@ -106,12 +106,19 @@ OP_MOTION_GET = 103021
 OP_MOTION_SET = 103023
 RESP_MOTION = 103022
 RESP_MOTION_ECHO = 103024
+# Obstacle avoidance ALSO has a dedicated single-field setter (103045, {"avoidobstacle": bool}) — the
+# app's "Collision Avoidance Assist" toggle. Prefer this over the whole-MotionSettings write: it never
+# clobbers the other bundle fields, and the value is echoed back in the normal settings report, so we
+# can read it too. (The 103023 bundle stays only for steering/pickup/desktop/abnormal, which the robot
+# doesn't report back — those we don't surface yet.)
+OP_AVOID_OBSTACLE = 103045
 
 # value tables (from the app's UI): name shown in HA -> integer sent to the robot
 VIDEO_QUALITY_MAP = {"Low": 1, "Medium": 2, "High": 3}
 IMAGE_STYLE_MAP = {"Standard": 0, "Vivid": 1, "Soft": 2}
 SHOOT_MODE_MAP = {"Normal": 0, "Wide": 1, "Follow": 2}
-MOVE_MODE_MAP = {"Mode 1": 0, "Mode 2": 1, "Mode 3": 2}
+# Driving mode = the app's "Driving Mode" radio (Smooth Mode / Racing Mode). moveMode 0/1.
+MOVE_MODE_MAP = {"Smooth": 0, "Racing": 1}
 # steeringSensitivity has 4 levels (0..3) in the app; names are our own (the app's strings are obfuscated)
 STEERING_MAP = {"Low": 0, "Medium": 1, "High": 2, "Max": 3}
 # Eyes/emoji display (opcode 104057). Reconstructed from the Air 2 app: the payload is
@@ -1300,9 +1307,15 @@ class Bridge:
             "state_topic": st, "value_template": "{{ value_json.shoot_mode | default('') }}",
             "options": list(SHOOT_MODE_MAP.keys()), "icon": "mdi:camera-iris"})
         self._disc("select", "move_mode", {
-            "name": "EBO move mode", "command_topic": "%s/move_mode/set" % NODE,
+            "name": "EBO driving mode", "command_topic": "%s/move_mode/set" % NODE,
             "state_topic": st, "value_template": "{{ value_json.move_mode | default('') }}",
-            "options": list(MOVE_MODE_MAP.keys()), "icon": "mdi:cog-transfer"})
+            "options": list(MOVE_MODE_MAP.keys()), "icon": "mdi:steering"})
+        # collision avoidance — real state (the robot echoes avoidobstacle in the settings report)
+        self._disc("switch", "avoid_obstacle", {
+            "name": "EBO collision avoidance", "command_topic": "%s/avoid_obstacle/set" % NODE,
+            "state_topic": st, "value_template": "{{ value_json.avoid_obstacle | default('false') }}",
+            "payload_on": "true", "payload_off": "false", "state_on": "true", "state_off": "false",
+            "icon": "mdi:wall"})
         self._disc("select", "eyes", {
             "name": "EBO eyes", "command_topic": "%s/eyes/set" % NODE,
             "options": list(EYES_STYLES.keys()), "optimistic": True, "icon": "mdi:eye"})
@@ -1397,8 +1410,8 @@ class Bridge:
         c.subscribe("%s/connected/set" % NODE)
         # extra controls
         for topic in ("rotate/set", "video_quality/set", "image_style/set",
-                      "shoot_mode/set", "move_mode/set", "eyes/set", "roaming/set",
-                      "ai_track", "motion/set", "voice/set", "ai_ask"):
+                      "shoot_mode/set", "move_mode/set", "avoid_obstacle/set", "eyes/set",
+                      "roaming/set", "ai_track", "motion/set", "voice/set", "ai_ask"):
             c.subscribe("%s/%s" % (NODE, topic))
         self._publish_camera_state()
         self._publish_conn_state()
@@ -1498,7 +1511,10 @@ class Bridge:
                     "customEyes": {"timeStyle": 0},
                 })
             elif topic.endswith("/avoid_obstacle/set"):
-                self._set_motion("avoidobstacle", payload.lower() in ("on", "true", "1"))
+                on = payload.lower() in ("on", "true", "1")
+                self.send(OP_AVOID_OBSTACLE, {"avoidobstacle": on})   # direct setter, no bundle clobber
+                self.settings["avoidobstacle"] = on                   # optimistic (settings report confirms)
+                self._publish_settings()
             elif topic.endswith("/steering/set"):
                 self._set_motion("steeringSensitivity", STEERING_MAP.get(payload, 0))
             elif topic.endswith("/pickup_check/set"):

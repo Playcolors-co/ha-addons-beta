@@ -1,5 +1,18 @@
 # Changelog — Enabot integration
 
+## 0.26.48 — driving settings, just like the Enabot app's fullscreen menu
+- The fullscreen ⚙ menu is now **tabbed like the app** (Settings / Controls / Auxiliary):
+  - **Settings**: **Driving mode** (Smooth / Racing), **Movement speed**, **Call volume**.
+  - **Controls**: our joystick config (two-sticks/single, swap, side, sensitivity) + video quality.
+  - **Auxiliary**: **Collision avoidance** toggle. (The app's "Auxiliary View" is an app-only on-screen
+    overlay, not a robot setting, so it's not included.)
+- The same driving settings are also on the **robot detail** page (new "Driving" section) and as
+  **native entities**: `select` *Driving mode* + `switch` *Collision avoidance*.
+- All of these are **real state**: `moveMode` and `avoidobstacle` come back in the robot's normal
+  settings report, so the controls reflect the robot's actual values. Collision avoidance uses the
+  robot's **dedicated single-field setter** (opcode 103045) — no whole-bundle write, so it never
+  disturbs the other motion settings.
+
 ## 0.26.13 — fluid drive video that works through Ingress (hls.js + proxy)
 - The 0.26.12 fluid HLS was black in the panel because HA's Ingress blocks the nested iframe. Now the
   fullscreen 'drive' view plays the Low-Latency HLS in a **<video> via hls.js**, with the stream

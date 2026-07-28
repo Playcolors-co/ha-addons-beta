@@ -46,6 +46,7 @@ ALLOWED_CMDS = {
     "say", "talk",
     "video_quality/set", "image_style/set", "volume/set", "talkback_volume/set",
     "speed/set", "sports_record/set", "call_rec/set", "eyes/set",
+    "move_mode/set", "avoid_obstacle/set",
     # raw opcode escape hatch for AI/automation (and the eyes protocol): {"id":<op>,"data":{...}}
     "cmd",
 }
@@ -481,6 +482,11 @@ header{padding:14px 18px;font-size:20px;font-weight:600;display:flex;justify-con
 @media(prefers-color-scheme:dark){.sec{background:#1c2126}}
 .sec h4{margin:0 0 8px;font-size:14px;color:#8a929a;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
 label{font-size:12px;color:#8a929a;display:block;margin:10px 0 3px}
+label.tgl{display:flex;align-items:center;justify-content:space-between;gap:12px;color:inherit;font-size:14px;margin:14px 0 3px}
+label.tgl input[type=checkbox]{width:44px;height:26px;flex:none;-webkit-appearance:none;appearance:none;background:#c8ccd0;border-radius:13px;position:relative;cursor:pointer;transition:background .15s;margin:0}
+label.tgl input[type=checkbox]:checked{background:#12b886}
+label.tgl input[type=checkbox]::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+label.tgl input[type=checkbox]:checked::after{left:21px}
 select,input[type=number]{width:100%;padding:8px;border-radius:8px;border:1px solid #0002;background:transparent;color:inherit}
 input[type=range]{width:100%}
 .url{font-size:11px;color:#8a929a;word-break:break-all;margin-top:10px}
@@ -548,6 +554,9 @@ input[type=range]{width:100%}
 dialog{border:0;border-radius:14px;padding:0;max-width:440px;width:92%;background:#fff;color:#111}
 @media(prefers-color-scheme:dark){dialog{background:#1c2126;color:#e9ecef}}
 dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;margin-top:10px}
+.tabs{display:flex;gap:6px;margin:0 0 4px;border-bottom:1px solid #0001;padding-bottom:2px}
+.tab{flex:1;border:0;background:transparent;color:#8a929a;font-size:13px;font-weight:600;padding:8px 4px;cursor:pointer;border-bottom:2px solid transparent}
+.tab.on{color:inherit;border-bottom-color:#2b6cff}
 </style></head><body>
 <header>
   <span><span id="title" onclick="goBack()" style="cursor:pointer">🤖 EBO</span>
@@ -565,22 +574,42 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 
 <dialog id="fsopts"><div class="in">
   <h3>Drive settings</h3>
-  <label>Controls</label>
-  <select id="fs-ctrl" onchange="setFsCtrl(this.value)">
-    <option value="dual">Two sticks (drive + steer)</option>
-    <option value="joy">Single joystick</option>
-  </select>
-  <label id="fs-swaprow" style="display:flex;align-items:center;gap:8px;margin-top:10px">
-    <input type="checkbox" id="fs-swap" style="width:auto" onchange="setFsSwap(this.checked)"> Swap the two sticks (steer on the left, drive on the right)
-  </label>
-  <label id="fs-joyrow" style="display:none">Joystick side
-    <select id="fs-joyside" onchange="setFsJoySide(this.value)">
-      <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+  <div class="tabs">
+    <button class="tab on" data-tab="set" onclick="fsTab('set')">Settings</button>
+    <button class="tab" data-tab="ctl" onclick="fsTab('ctl')">Controls</button>
+    <button class="tab" data-tab="aux" onclick="fsTab('aux')">Auxiliary</button>
+  </div>
+  <div class="tabp" data-tab="set">
+    <label>Driving mode</label>
+    <select id="fs-dm" onchange="if(fsNode)cmd(fsNode,'move_mode/set',this.value)">${''}</select>
+    <label>Movement speed (<span id="fs-mspd-v">—</span>)</label>
+    <input id="fs-mspd" type="range" min="1" max="100" value="50" onchange="if(fsNode)cmd(fsNode,'speed/set',this.value)" oninput="document.getElementById('fs-mspd-v').textContent=this.value">
+    <label>Call volume (<span id="fs-cvol-v">—</span>)</label>
+    <input id="fs-cvol" type="range" min="0" max="100" value="50" onchange="if(fsNode)cmd(fsNode,'talkback_volume/set',this.value)" oninput="document.getElementById('fs-cvol-v').textContent=this.value">
+  </div>
+  <div class="tabp" data-tab="ctl" style="display:none">
+    <label>Controls</label>
+    <select id="fs-ctrl" onchange="setFsCtrl(this.value)">
+      <option value="dual">Two sticks (drive + steer)</option>
+      <option value="joy">Single joystick</option>
     </select>
-  </label>
-  <label>Speed (<span id="fs-spd-v">60</span>)</label>
-  <input id="fs-spd" type="range" min="1" max="100" value="60" oninput="driveSpeed=+this.value;document.getElementById('fs-spd-v').textContent=this.value">
-  <label>Video quality</label><select id="fs-vq" onchange="if(fsNode)cmd(fsNode,'video_quality/set',this.value)">${''}</select>
+    <label id="fs-swaprow" style="display:flex;align-items:center;gap:8px;margin-top:10px">
+      <input type="checkbox" id="fs-swap" style="width:auto" onchange="setFsSwap(this.checked)"> Swap the two sticks (steer on the left, drive on the right)
+    </label>
+    <label id="fs-joyrow" style="display:none">Joystick side
+      <select id="fs-joyside" onchange="setFsJoySide(this.value)">
+        <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+      </select>
+    </label>
+    <label>Joystick sensitivity (<span id="fs-spd-v">60</span>)</label>
+    <input id="fs-spd" type="range" min="1" max="100" value="60" oninput="driveSpeed=+this.value;document.getElementById('fs-spd-v').textContent=this.value">
+    <label>Video quality</label><select id="fs-vq" onchange="if(fsNode)cmd(fsNode,'video_quality/set',this.value)">${''}</select>
+  </div>
+  <div class="tabp" data-tab="aux" style="display:none">
+    <label class="tgl"><span>Collision avoidance</span>
+      <input type="checkbox" id="fs-avoid" onchange="if(fsNode)cmd(fsNode,'avoid_obstacle/set',this.checked?'on':'off')"></label>
+    <div class="note">The Enabot app also shows "Auxiliary View" here — that's an app-only on-screen overlay, not a robot setting, so it isn't included.</div>
+  </div>
   <div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn pri" onclick="document.getElementById('fsopts').close()">Done</button></div>
   <div class="note">More actions (talk, listen, recording, snapshot, patrol) coming soon.</div>
 </div></dialog>
@@ -614,7 +643,8 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 const B = window.location.pathname.replace(/\/$/,'');
 (function(){ const s=document.createElement('script'); s.src=B+'/hls.min.js'; s.async=true; document.head.appendChild(s); })();  // fluid HLS player
 const VQ=["Low","Medium","High"], IS=["Standard","Vivid","Soft"],
-      EY=["Dynamic 1","Dynamic 2","Dynamic 3","Dynamic 4","Dynamic 5","Dynamic 6","Clock 1","Clock 2","Custom"];
+      EY=["Dynamic 1","Dynamic 2","Dynamic 3","Dynamic 4","Dynamic 5","Dynamic 6","Clock 1","Clock 2","Custom"],
+      DM=["Smooth","Racing"];   // driving mode (app: Driving Mode Smooth/Racing)
 let ROBOTS=[], SEL=null;
 async function cmd(node,suffix,payload){
   await fetch(B+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -799,15 +829,29 @@ function syncFsOpts(){
   const sw=document.getElementById('fs-swaprow'); if(sw) sw.style.display = fsCtrlMode==='dual'?'flex':'none';
   const jr=document.getElementById('fs-joyrow'); if(jr) jr.style.display = fsCtrlMode==='joy'?'':'none';
 }
+function fsTab(name){
+  document.querySelectorAll('#fsopts .tab').forEach(b=>b.classList.toggle('on',b.dataset.tab===name));
+  document.querySelectorAll('#fsopts .tabp').forEach(p=>p.style.display=(p.dataset.tab===name)?'':'none');
+}
 function openFsSettings(){
   const d=document.getElementById('fsopts'); const r=ROBOTS.find(x=>x.node===fsNode)||{}, st=r.state||{};
+  // Settings tab (mirrors the app's fullscreen menu): driving mode, movement speed, call volume
+  document.getElementById('fs-dm').innerHTML=opt(DM, st.move_mode);
+  document.getElementById('fs-mspd').value=st.speed??50;
+  document.getElementById('fs-mspd-v').textContent=st.speed??'—';
+  document.getElementById('fs-cvol').value=st.talkback_volume??50;
+  document.getElementById('fs-cvol-v').textContent=st.talkback_volume??'—';
+  // Controls tab (our joystick config + video)
   document.getElementById('fs-vq').innerHTML=opt(VQ, st.video_quality);
   document.getElementById('fs-spd-v').textContent=driveSpeed;
   d.querySelector('#fs-spd').value=driveSpeed;
   document.getElementById('fs-ctrl').value=fsCtrlMode;
   document.getElementById('fs-swap').checked=fsDualSwap;
   document.getElementById('fs-joyside').value=fsJoySide;
+  // Auxiliary tab (collision avoidance)
+  document.getElementById('fs-avoid').checked = st.avoid_obstacle==='true';
   syncFsOpts();
+  fsTab('set');
   d.showModal();
 }
 let wakeTimer=null;
@@ -1032,14 +1076,22 @@ function detailView(r){
       </div>
       <div class="note" style="font-size:11px;color:#8a929a;margin-top:8px">Drag the joystick to drive: up = forward, sides = turn, diagonal = curve. The camera must be on to see the live view.</div>
     </div>
+    <div class="sec"><h4>Driving</h4>
+      <label>Driving mode</label><select onchange="cmd('${r.node}','move_mode/set',this.value)">${opt(DM,st.move_mode)}</select>
+      <label>Movement speed (${st.speed??'—'})</label>
+      <input type="range" min="1" max="100" value="${st.speed??50}" onchange="cmd('${r.node}','speed/set',this.value)">
+      <label class="tgl"><span>Collision avoidance</span>
+        <input type="checkbox" ${st.avoid_obstacle==='true'?'checked':''} onchange="cmd('${r.node}','avoid_obstacle/set',this.checked?'on':'off')"></label>
+      <div class="note" style="font-size:11px;color:#8a929a;margin-top:6px">Same settings as the Enabot app's fullscreen menu.</div>
+    </div>
     <div class="sec"><h4>Robot settings</h4>
       <label>Video quality</label><select onchange="cmd('${r.node}','video_quality/set',this.value)">${opt(VQ,st.video_quality)}</select>
       <label>Image style</label><select onchange="cmd('${r.node}','image_style/set',this.value)">${opt(IS,st.image_style)}</select>
       <label>Eyes</label><select onchange="cmd('${r.node}','eyes/set',this.value)">${opt(EY,st.eyes)}</select>
       <label>Volume (${st.volume??st.playback_volume??'—'})</label>
       <input type="range" min="0" max="100" value="${st.volume??st.playback_volume??50}" onchange="cmd('${r.node}','volume/set',this.value)">
-      <label>Speed (${st.speed??'—'})</label>
-      <input type="range" min="1" max="100" value="${st.speed??50}" onchange="cmd('${r.node}','speed/set',this.value)">
+      <label>Call volume (${st.talkback_volume??'—'})</label>
+      <input type="range" min="0" max="100" value="${st.talkback_volume??50}" onchange="cmd('${r.node}','talkback_volume/set',this.value)">
       <div class="row">
         <button class="btn" onclick="cmd('${r.node}','sports_record/set','on')">Motion rec ON</button>
         <button class="btn" onclick="cmd('${r.node}','sports_record/set','off')">OFF</button>

@@ -22,6 +22,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         EboSelect(c, entry, "eyes", "Eyes", "eyes/set", "eyes",
                   ["Dynamic 1", "Dynamic 2", "Dynamic 3", "Dynamic 4", "Dynamic 5", "Dynamic 6",
                    "Clock 1", "Clock 2", "Custom"], "mdi:eye"),
+        # Driving mode = the app's fullscreen "Driving Mode" (Smooth / Racing).
+        EboSelect(c, entry, "move_mode", "Driving mode", "move_mode/set",
+                  "move_mode", ["Smooth", "Racing"], "mdi:steering"),
     ])
 
 
