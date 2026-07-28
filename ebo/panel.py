@@ -703,8 +703,28 @@ function thumb(n){return `${B}/api/snapshot?node=${encodeURIComponent(n)}&t=${Ma
 function bg(node,suffix,payload){ fetch(B+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node,suffix,payload})}).catch(()=>{}); }
 // Laser is a TOGGLE: the robot reports its state (state.laser), so read it at click time and send
 // the opposite. Sending 'on' unconditionally (the old behaviour) could never turn it off.
-function laserOn(node){ const r=ROBOTS.find(x=>x.node===node); return !!(r&&r.state&&(r.state.laser==='true'||r.state.laser===true)); }
-function toggleLaser(node){ cmd(node,'laser/set', laserOn(node)?'off':'on'); }
+// The robot reports laserStatus with a few seconds' lag, and refresh() overwrites ROBOTS wholesale —
+// so an optimistic toggle would flicker back when a stale poll lands. We hold the optimistic value
+// until the real state catches up (or a short timeout), which kills the flicker.
+let laserPending={};
+function laserOn(node){
+  const r=ROBOTS.find(x=>x.node===node);
+  const real=!!(r&&r.state&&(r.state.laser==='true'||r.state.laser===true));
+  const p=laserPending[node];
+  if(p){ if(real===p.val || Date.now()>=p.until){ delete laserPending[node]; return real; } return p.val; }
+  return real;
+}
+function updateLaserUI(node){
+  const on=laserOn(node);
+  const db=document.getElementById('d-laser'); if(db){ db.className='btn '+(on?'pri':''); db.textContent='Laser '+(on?'ON':'OFF'); }
+  const fb=document.getElementById('fs-laser'); if(fb) fb.className='fs-ic '+(on?'on':'');
+}
+function toggleLaser(node){
+  const nv=!laserOn(node);
+  laserPending[node]={val:nv, until:Date.now()+6000};   // optimistic feedback, held until telemetry agrees
+  updateLaserUI(node);
+  cmd(node,'laser/set', nv?'on':'off');
+}
 // Enter detail/drive → camera/set on. Bridge-side this JOINS the Agora RTC channel, which WAKES
 // the robot exactly like opening the app (real viewer present). goBack → connected/set off leaves
 // the channel so the robot goes back to standby (ZZ). No unreliable isSleeping opcode dance.
@@ -797,8 +817,8 @@ function fsTop(node){
   return `<div class="fs-info">
       <button class="fs-ic" onclick="exitFS()" title="Back" style="width:40px;height:40px;font-size:24px">‹</button>
       <span class="b" id="fs-badge2">···</span>
-      <span class="b">🔋 ${st.battery??'—'}%</span>
-      <span class="b">📶 ${st.wifi??'—'}</span>
+      <span class="b" id="fs-bat">🔋 ${st.battery??'—'}%</span>
+      <span class="b" id="fs-wifi">📶 ${st.wifi??'—'}</span>
     </div>
     <div class="fs-actions">
       <button class="fs-ic ${laserOn?'on':''}" id="fs-laser" onclick="toggleLaser('${node}')" title="Laser">•</button>
@@ -1072,7 +1092,7 @@ function detailView(r){
       <button id="d-cam" class="btn ${cam?'pri':''}" onclick="cmd('${r.node}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
       <button class="btn" onclick="cmd('${r.node}','camera/set','on')">☀ Wake</button>
       <button class="btn" onclick="cmd('${r.node}','connected/set','off')">🌙 Standby</button>
-      <button class="btn ${st.laser==='true'?'pri':''}" onclick="toggleLaser('${r.node}')">Laser ${st.laser==='true'?'ON':'OFF'}</button>
+      <button id="d-laser" class="btn ${st.laser==='true'?'pri':''}" onclick="toggleLaser('${r.node}')">Laser ${st.laser==='true'?'ON':'OFF'}</button>
       <button class="btn" onclick="cmd('${r.node}','dock','')">Dock</button>
     </div>
     <div class="sec"><h4>Drive</h4>
@@ -1122,6 +1142,11 @@ function updateValues(){
     const dot=document.getElementById('d-dot'); if(dot) dot.className='dot '+(r.online?'on':'');
     const m=document.getElementById('d-meta'); if(m) m.textContent=`${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}`;
     const cb=document.getElementById('d-cam'); if(cb){ cb.className='btn '+(cam?'pri':''); cb.textContent=cam?'Camera ON':'Camera OFF'; cb.setAttribute('onclick',`cmd('${r.node}','camera/set','${cam?'off':'on'}')`); }
+    updateLaserUI(SEL);                                    // keep the laser toggle (detail + fullscreen) in sync
+    if(document.getElementById('fs').style.display==='block'){   // fullscreen open: refresh its top-bar info
+      const fb=document.getElementById('fs-bat'); if(fb) fb.textContent='🔋 '+(st.battery??'—')+'%';
+      const fw=document.getElementById('fs-wifi'); if(fw) fw.textContent='📶 '+(st.wifi??'—');
+    }
   }else{
     ROBOTS.forEach(r=>{
       const dot=document.getElementById('dot-'+r.node); if(dot) dot.className='dot '+(r.online?'on':'');
