@@ -578,17 +578,24 @@ input[type=range]{width:100%}
   display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
 .fs-ic:active{transform:scale(.92)}.fs-ic.on{background:#2b6cff}
 .fs-ic.disabled{opacity:.35;pointer-events:none}
-/* dual sticks: left = forward/back (vertical), right = turn (horizontal) — like the Enabot app */
-.stick{position:absolute;bottom:28px;z-index:2;width:150px;height:150px;border-radius:50%;touch-action:none;user-select:none;
+/* driving controls container (dual sticks or a single joystick, chosen in fullscreen Settings) */
+#fs-drive{position:absolute;inset:0;z-index:2;pointer-events:none}
+#fs-drive .stick,#fs-drive .joy{pointer-events:auto}
+.stick{position:absolute;bottom:28px;width:150px;height:150px;border-radius:50%;touch-action:none;user-select:none;
   -webkit-user-select:none;background:radial-gradient(circle at 50% 45%,#ffffff22,#00000055);border:1px solid #ffffff1f;backdrop-filter:blur(3px)}
 .fs-lstick{left:28px}.fs-rstick{right:28px}
+.fs-single{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);width:200px;height:200px;
+  background:radial-gradient(circle at 50% 42%,#ffffff26,#00000055);backdrop-filter:blur(3px)}
+.fs-single .joy-knob{width:76px;height:76px;margin:-38px 0 0 -38px}
 .stick .joy-knob{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;
   background:radial-gradient(circle at 40% 33%,#5a97ff,#2b6cff);box-shadow:0 3px 12px #0009;pointer-events:none;transition:transform .06s ease-out}
 .stick.drag .joy-knob{transition:none}
 .stick .ax{position:absolute;color:#ffffff88;font-size:13px}
-.fs-lstick .ax.a1{top:7px;left:50%;transform:translateX(-50%)}.fs-lstick .ax.a2{bottom:7px;left:50%;transform:translateX(-50%)}
-.fs-rstick .ax.a1{left:7px;top:50%;transform:translateY(-50%)}.fs-rstick .ax.a2{right:7px;top:50%;transform:translateY(-50%)}
-#fs.hidectl .fs-top,#fs.hidectl .stick{display:none}
+.stick[data-axis=v] .ax.a1{top:7px;left:50%;transform:translateX(-50%)}
+.stick[data-axis=v] .ax.a2{bottom:7px;left:50%;transform:translateX(-50%)}
+.stick[data-axis=h] .ax.a1{left:7px;top:50%;transform:translateY(-50%)}
+.stick[data-axis=h] .ax.a2{right:7px;top:50%;transform:translateY(-50%)}
+#fs.hidectl .fs-top,#fs.hidectl #fs-drive{display:none}
 /* press feedback */
 .btn:active{transform:scale(.96);filter:brightness(1.3)}
 .db.on,.db:active{background:#2b6cff !important;color:#fff !important;transform:scale(.9)}
@@ -615,14 +622,21 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
   <video id="fsvid" autoplay muted playsinline></video>
   <div class="fs-tap" onclick="toggleFsControls()"></div>
   <div class="fs-top" id="fs-top"></div>
-  <div class="stick fs-lstick" id="fs-lstick" data-axis="v"><span class="ax a1">▲</span><span class="ax a2">▼</span><div class="joy-knob"></div></div>
-  <div class="stick fs-rstick" id="fs-rstick" data-axis="h"><span class="ax a1">◀</span><span class="ax a2">▶</span><div class="joy-knob"></div></div>
+  <div id="fs-drive"></div>
 </div>
 
 <dialog id="fsopts"><div class="in">
   <h3>Drive settings</h3>
+  <label>Controls</label>
+  <select id="fs-ctrl" onchange="setFsCtrl(this.value)">
+    <option value="dual">Two sticks (drive + steer)</option>
+    <option value="joy">Single joystick</option>
+  </select>
+  <label id="fs-swaprow" style="display:flex;align-items:center;gap:8px;margin-top:10px">
+    <input type="checkbox" id="fs-swap" style="width:auto" onchange="setFsSwap(this.checked)"> Swap sides (steer left / drive right)
+  </label>
   <label>Speed (<span id="fs-spd-v">60</span>)</label>
-  <input type="range" min="1" max="100" value="60" oninput="driveSpeed=+this.value;document.getElementById('fs-spd-v').textContent=this.value">
+  <input id="fs-spd" type="range" min="1" max="100" value="60" oninput="driveSpeed=+this.value;document.getElementById('fs-spd-v').textContent=this.value">
   <label>Video quality</label><select id="fs-vq" onchange="if(fsNode)cmd(fsNode,'video_quality/set',this.value)">${''}</select>
   <div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn pri" onclick="document.getElementById('fsopts').close()">Done</button></div>
   <div class="note">More actions (talk, listen, recording, snapshot, patrol) coming soon.</div>
@@ -760,6 +774,10 @@ function initJoysticks(){
 }
 // --- fullscreen gamepad: live view fills the screen, controls overlaid ---
 let fsTimer=null, fsNode=null, fsDX=0, fsDY=0, fsDriveTimer=null;
+// driving-control preference (persisted): 'dual' = two sticks, 'joy' = one analog joystick.
+// fsDualSwap flips which side drives vs steers. Chosen in the fullscreen Settings menu.
+let fsCtrlMode = localStorage.getItem('ebo_fsctrl') || 'dual';
+let fsDualSwap = localStorage.getItem('ebo_fsswap') === '1';
 // fullscreen top bar: battery/signal/video on the LEFT (like the video overlay), minimal actions on
 // the RIGHT — Laser, Night vision (soon), Return to base, Settings. Talk/listen/record/snapshot/
 // patrol will join the action row later.
@@ -799,11 +817,37 @@ function initStick(el){
   el.addEventListener('pointerdown',down); el.addEventListener('pointermove',move);
   el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
 }
+function _fsStickEl(sideCls, axis){
+  const a = axis==='v' ? ['▲','▼'] : ['◀','▶'];
+  return `<div class="stick ${sideCls}" data-axis="${axis}"><span class="ax a1">${a[0]}</span><span class="ax a2">${a[1]}</span><div class="joy-knob"></div></div>`;
+}
+// Build the driving controls into #fs-drive according to the chosen mode. Dual = two one-axis sticks
+// (side of drive/steer flips with fsDualSwap); Joy = one two-axis analog joystick (centred).
+function renderFsControls(node){
+  const d=document.getElementById('fs-drive'); if(!d) return;
+  fsDX=0; fsDY=0; if(fsDriveTimer){clearInterval(fsDriveTimer);fsDriveTimer=null;}
+  if(fsCtrlMode==='joy'){
+    d.innerHTML=`<div class="joy fs-single" data-node="${node}"><div class="joy-knob"></div></div>`;
+    initJoysticks();
+  } else {
+    const leftAxis = fsDualSwap?'h':'v', rightAxis = fsDualSwap?'v':'h';
+    d.innerHTML = _fsStickEl('fs-lstick',leftAxis) + _fsStickEl('fs-rstick',rightAxis);
+    d.querySelectorAll('.stick').forEach(initStick);
+  }
+}
+function setFsCtrl(mode){ fsCtrlMode=mode; localStorage.setItem('ebo_fsctrl',mode); if(fsNode) renderFsControls(fsNode); syncFsOpts(); }
+function setFsSwap(on){ fsDualSwap=!!on; localStorage.setItem('ebo_fsswap',on?'1':'0'); if(fsNode) renderFsControls(fsNode); }
+function syncFsOpts(){
+  const sw=document.getElementById('fs-swaprow'); if(sw) sw.style.display = fsCtrlMode==='dual'?'':'none';
+}
 function openFsSettings(){
   const d=document.getElementById('fsopts'); const r=ROBOTS.find(x=>x.node===fsNode)||{}, st=r.state||{};
   document.getElementById('fs-vq').innerHTML=opt(VQ, st.video_quality);
   document.getElementById('fs-spd-v').textContent=driveSpeed;
-  d.querySelector('input[type=range]').value=driveSpeed;
+  d.querySelector('#fs-spd').value=driveSpeed;
+  document.getElementById('fs-ctrl').value=fsCtrlMode;
+  document.getElementById('fs-swap').checked=fsDualSwap;
+  syncFsOpts();
   d.showModal();
 }
 let wakeTimer=null;
@@ -938,8 +982,7 @@ let _driveVQ=null;   // video quality saved on entering drive, restored on exit
 function enterFS(node){
   fsNode=node; fsDX=0; fsDY=0;
   document.getElementById('fs-top').innerHTML=fsTop(node);
-  initStick(document.getElementById('fs-lstick'));
-  initStick(document.getElementById('fs-rstick'));
+  renderFsControls(node);          // dual sticks or single joystick, per the saved preference
   const v=document.getElementById('fsvid');
   v.setAttribute('data-node',node);                 // keyboard driving reads the node from here
   const fs=document.getElementById('fs'); fs.classList.remove('hidectl'); fs.style.display='block';
