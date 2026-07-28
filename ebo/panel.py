@@ -586,7 +586,7 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
   <video id="fsvid" autoplay muted playsinline></video>
   <div class="fs-tap" onclick="toggleFsControls()"></div>
   <div class="fs-top" id="fs-top"></div>
-  <div id="fs-hlswarn" class="fs-hlswarn" style="display:none">⚠ Connessione <b>HLS</b> — video in ritardo di ~1&nbsp;s. Va bene per guardare e comandare piano, <b>non</b> per la guida reattiva. Il video fluido (~200&nbsp;ms) è disponibile solo in LAN, o da remoto con un relay/VPN.</div>
+  <div id="fs-hlswarn" class="fs-hlswarn" style="display:none">⚠ <b>HLS</b> connection — video is delayed ~1&nbsp;s. Fine to watch and steer gently, <b>not</b> for reactive driving. Fluid video (~200&nbsp;ms) is only available on the LAN, or from remote with a relay/VPN.</div>
   <div id="fs-drive"></div>
 </div>
 
@@ -975,15 +975,15 @@ function hlsSrc(node){
 // Are we likely OFF the robot's LAN (opened via Nabu Casa remote, a reverse proxy, a public domain,
 // from cellular…)? WebRTC's media needs a DIRECT browser->host:8189/UDP hop, and mediamtx only offers
 // the host's PRIVATE LAN IPs as ICE candidates (no STUN/TURN) — from remote those are unreachable, so
-// WebRTC can never connect and we'd just hang ~15 s before ripiego. Heuristic on the panel's own
+// WebRTC can never connect and we'd just hang ~15 s before falling back. Heuristic on the panel's own
 // hostname: a private/LAN address (or a bare local name) = same network; anything else = remote. HLS
 // (Ingress-proxied) works either way, so a wrong guess only costs the fluid path, never playback.
 // Connection hint for the detail page: tells you, before you open fullscreen, which video path you'll
 // get — fluid WebRTC on the LAN, or the slower HLS from remote. (Detected from the panel's hostname.)
 function connHint(){
   return isLikelyRemote()
-    ? '🔗 Da remoto · il video userà <b>HLS</b> (~1&nbsp;s, meno fluido). Fluido solo in LAN o con relay/VPN.'
-    : '🔗 In LAN · video <b>WebRTC</b> fluido (~200&nbsp;ms)';
+    ? '🔗 Remote · video will use <b>HLS</b> (~1&nbsp;s, less fluid). Fluid only on the LAN or with a relay/VPN.'
+    : '🔗 On the LAN · fluid <b>WebRTC</b> video (~200&nbsp;ms)';
 }
 function connHintClass(){ return 'connhint'+(isLikelyRemote()?' hls':''); }
 function isLikelyRemote(){
@@ -1096,13 +1096,13 @@ async function fsPlay(node){
   _cleanupVid(v);
   const gen=(v._gen=(v._gen||0)+1);
   const open=()=>document.getElementById('fs').style.display==='block' && v._gen===gen;
-  _fsStatus('Connessione al robot…');
+  _fsStatus('Connecting to the robot…');
   // Off-LAN (cellular / remote access): the direct WebRTC UDP path can't be reached and there's no
   // STUN/TURN, so trying it would only hang before falling back. Go STRAIGHT to the Ingress-proxied
   // HLS (which works remotely). The status overlay clears once the video actually starts playing;
   // hls.js self-heals the first few seconds while the robot wakes + publishes its first segment.
   if(isLikelyRemote()){
-    _fsBadge('HLS · remoto', 'hls');
+    _fsBadge('HLS · remote', 'hls');
     console.log('[ebo] off-LAN → HLS diretto (WebRTC saltato)');
     v.addEventListener('playing',()=>{ if(open()) _fsStatus(null); },{once:true});
     hlsPlay(node);
@@ -1131,7 +1131,7 @@ async function fsPlay(node){
     if(++iceFails>=2) break;          // answer OK but ICE won't connect → network issue → HLS
     await new Promise(r=>setTimeout(r,600));
   }
-  if(open()){ _fsStatus(null); _fsBadge('HLS · ripiego', 'hls'); console.log('[ebo] WHEP unavailable → HLS fallback'); hlsPlay(node); }
+  if(open()){ _fsStatus(null); _fsBadge('HLS · fallback', 'hls'); console.log('[ebo] WHEP unavailable → HLS fallback'); hlsPlay(node); }
 }
 let _driveVQ=null;   // video quality saved on entering drive, restored on exit
 function enterFS(node){
