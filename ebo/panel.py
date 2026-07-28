@@ -47,6 +47,8 @@ ALLOWED_CMDS = {
     "say", "talk",
     "video_quality/set", "image_style/set", "volume/set", "talkback_volume/set",
     "speed/set", "sports_record/set", "call_rec/set", "eyes/set",
+    # raw opcode escape hatch for AI/automation (and the eyes protocol): {"id":<op>,"data":{...}}
+    "cmd",
 }
 
 # Add-on settings the panel manages (stored in /data/panel.json, read by run.sh). Everything
