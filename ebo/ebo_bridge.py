@@ -914,6 +914,11 @@ class Bridge:
                     level="debug")
             except Exception:
                 pass
+        if mid in (104052, 104054, 104056, 104058, 104061, 104062):   # TEMP: capture eyes protocol
+            try:
+                log("[eyes-raw] id=%s %s" % (mid, json.dumps(data, separators=(",", ":"))))
+            except Exception:
+                pass
         if obj.get("rsid"):
             self.sid = obj["rsid"]
         if mid == OP_TELEMETRY:
@@ -1109,7 +1114,7 @@ class Bridge:
                    "patrol/route/set", "patrol/start", "camera/set", "connected/set",
                    "rotate/set", "video_quality/set", "image_style/set", "shoot_mode/set",
                    "move_mode/set", "eyes/set", "roaming/set", "ai_track", "motion/set",
-                   "voice/set", "ai_ask"):
+                   "voice/set", "ai_ask", "cmd"):    # "cmd" = raw opcode escape hatch (AI/eyes)
             c.subscribe("%s/%s" % (NODE, _t))
         if not self.expose_mqtt:
             # native-integration mode: skip MQTT entity discovery (the panel/integration still
