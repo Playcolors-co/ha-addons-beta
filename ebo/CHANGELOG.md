@@ -1,5 +1,18 @@
 # Changelog — Enabot integration
 
+## 0.26.54 — fullscreen works from cellular / remote (instant HLS instead of a WebRTC hang)
+- **Fixed the fullscreen "drive" view failing when you're not on the robot's LAN** (mobile data, Nabu
+  Casa remote, a reverse proxy). The fluid path is **WebRTC**, whose media needs a *direct*
+  browser→host:8189/UDP hop; mediamtx only advertises the host's **private LAN IPs** as ICE candidates
+  and there's no STUN/TURN, so from remote WebRTC can never connect — it just hung ~15 s on
+  "Connessione al robot…" before (maybe) falling back.
+- Now the panel **detects when it's opened from off-LAN** (from `location.hostname`) and plays the
+  **Ingress-proxied HLS straight away**, skipping the doomed WebRTC attempt. The badge shows
+  **"HLS (remoto)"** and the video starts in ~1-2 s instead of hanging. On the LAN nothing changes:
+  WebRTC is still tried first for the ~200 ms fluid drive video, with HLS as fallback.
+- NOTE: remote video is the ~1 s HLS, not the 200 ms WebRTC — good enough to watch/steer gently, but
+  the truly-fluid drive path stays LAN-only unless a STUN/TURN server is added later.
+
 ## 0.26.53 — Routes: teach & repeat (record a path, replay it)
 - New **Routes** feature, reverse-engineered from the app (the Air 2 firmware supports it even though
   the current app hides it): **drive to teach a path, then have the robot repeat it.**

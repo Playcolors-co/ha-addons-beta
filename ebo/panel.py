@@ -964,6 +964,27 @@ function hlsSrc(node){
     return B+'/hlsp/'+port+'/'+path+'/index.m3u8';
   }catch(e){ return ''; }
 }
+// Are we likely OFF the robot's LAN (opened via Nabu Casa remote, a reverse proxy, a public domain,
+// from cellular…)? WebRTC's media needs a DIRECT browser->host:8189/UDP hop, and mediamtx only offers
+// the host's PRIVATE LAN IPs as ICE candidates (no STUN/TURN) — from remote those are unreachable, so
+// WebRTC can never connect and we'd just hang ~15 s before ripiego. Heuristic on the panel's own
+// hostname: a private/LAN address (or a bare local name) = same network; anything else = remote. HLS
+// (Ingress-proxied) works either way, so a wrong guess only costs the fluid path, never playback.
+function isLikelyRemote(){
+  const h=(location.hostname||'').toLowerCase();
+  if(!h||h==='localhost') return false;
+  if(h.startsWith('homeassistant')) return false;                 // homeassistant / homeassistant.local
+  if(/\.(local|lan|internal|home|home\.arpa)$/.test(h)) return false;
+  const m=h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if(m){ const a=+m[1], b=+m[2];                                  // IPv4: RFC1918 / loopback / link-local = LAN
+    if(a===10||a===127||(a===169&&b===254)) return false;
+    if(a===192&&b===168) return false;
+    if(a===172&&b>=16&&b<=31) return false;
+    return true; }                                                // any other IPv4 → remote
+  if(h.indexOf(':')>=0) return !(h==='::1'||/^\[?f[cd]/.test(h)); // IPv6: loopback / ULA (fc/fd) = LAN
+  if(h.indexOf('.')<0) return false;                              // bare single-label host (mDNS/local DNS) → LAN
+  return true;                                                    // FQDN (nabu.casa, duckdns, custom) → remote
+}
 // WebRTC (WHEP): the robot's H.265 is re-encoded to H.264 by the add-on and served by mediamtx as
 // WebRTC. The browser CAN decode H.264 over WebRTC, giving ~200 ms FLUID video — the only path good
 // enough to actually drive. Signalling is proxied through Ingress (same origin); the media flows
@@ -1054,6 +1075,17 @@ async function fsPlay(node){
   const gen=(v._gen=(v._gen||0)+1);
   const open=()=>document.getElementById('fs').style.display==='block' && v._gen===gen;
   _fsStatus('Connessione al robot…');
+  // Off-LAN (cellular / remote access): the direct WebRTC UDP path can't be reached and there's no
+  // STUN/TURN, so trying it would only hang before falling back. Go STRAIGHT to the Ingress-proxied
+  // HLS (which works remotely). The status overlay clears once the video actually starts playing;
+  // hls.js self-heals the first few seconds while the robot wakes + publishes its first segment.
+  if(isLikelyRemote()){
+    _fsBadge('HLS (remoto)');
+    console.log('[ebo] off-LAN → HLS diretto (WebRTC saltato)');
+    v.addEventListener('playing',()=>{ if(open()) _fsStatus(null); },{once:true});
+    hlsPlay(node);
+    return;
+  }
   const deadline=Date.now()+20000;   // keep trying while the robot wakes + first frame arrives
   let iceFails=0;
   while(open() && Date.now()<deadline){
