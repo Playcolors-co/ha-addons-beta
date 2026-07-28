@@ -1046,7 +1046,6 @@ function detailView(r){
       </div>
     </div>
     <div class="row" style="margin-top:14px"><button class="btn danger" onclick="removeRobot('${r.node}')">🗑 Remove from account</button></div>
-    <div class="url">${esc(r.url)}</div>
   </div>`;
 }
 let lastSig=null;

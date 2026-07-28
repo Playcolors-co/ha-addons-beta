@@ -1,5 +1,5 @@
 name: EBO for Home Assistant (unofficial, beta)
-version: "0.26.45"
+version: "0.26.46"
 slug: ebo
 description: Unofficial, free community add-on to manage Enabot EBO robots in Home Assistant (panel, camera, entities). Not affiliated with Enabot.
 url: https://github.com/Playcolors-co/ha-addons-beta
@@ -10,23 +10,16 @@ arch:
   - amd64
 startup: application
 boot: auto
-# RTSP video (Generic Camera). 8554 = single robot / first robot; 8555-8557 = extra robots
-# when the account has more than one (one RTSP port per robot).
+# Only the ports the OUTSIDE world (your browser) must reach are host-mapped. RTSP (8554…) and HLS
+# (8888…) are NOT here: they're internal — the camera entity reaches RTSP over the Docker network by
+# the add-on's hostname, and the panel plays HLS through the Ingress proxy. Only WebRTC needs the host
+# (the browser connects directly for the fluid drive video), plus the integration data API.
 ports:
-  8554/tcp: 8554
-  8555/tcp: 8555
-  8556/tcp: 8556
-  8557/tcp: 8557
   # data API for the native HA integration (token-guarded)
   8098/tcp: 8098
-  # Low-Latency HLS: the panel's fullscreen 'drive' view plays this for a FLUID preview (one per
-  # robot, 8888 = robot 1). Your browser reaches it directly for smooth low-latency video.
-  8888/tcp: 8888
-  8889/tcp: 8889
-  8890/tcp: 8890
-  8891/tcp: 8891
-  # WebRTC (WHEP) for the panel's fullscreen 'drive' view — TRULY fluid ~200 ms video (one per
-  # robot, 8189 = robot 1). Needs BOTH tcp (WHEP signalling) and udp (ICE media).
+  # WebRTC (WHEP) for the panel's fullscreen 'drive' view — TRULY fluid ~200 ms video. The browser
+  # connects directly here for ICE/media (that's why this one MUST be exposed). One per robot
+  # (8189 = robot 1 … 8192 = robot 4); needs BOTH tcp (signalling) and udp (media).
   8189/tcp: 8189
   8189/udp: 8189
   8190/tcp: 8190
@@ -36,15 +29,7 @@ ports:
   8192/tcp: 8192
   8192/udp: 8192
 ports_description:
-  8554/tcp: "Camera video stream (robot 1) — internal, no need to change"
-  8555/tcp: "Camera video stream (robot 2, if any) — internal"
-  8556/tcp: "Camera video stream (robot 3, if any) — internal"
-  8557/tcp: "Camera video stream (robot 4, if any) — internal"
   8098/tcp: "Data API for the Enabot integration — internal, no need to change"
-  8888/tcp: "Fluid HLS preview (robot 1) for the panel drive view — no need to change"
-  8889/tcp: "Fluid HLS preview (robot 2, if any)"
-  8890/tcp: "Fluid HLS preview (robot 3, if any)"
-  8891/tcp: "Fluid HLS preview (robot 4, if any)"
   8189/tcp: "WebRTC drive video (robot 1) — signalling; no need to change"
   8189/udp: "WebRTC drive video (robot 1) — media/ICE; no need to change"
 # Our base is python:3.11-slim (not an HA base image with s6): disable HA init.
