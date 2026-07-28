@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.26.51 — settings grouped by function + clearer audio labels
+- **Fullscreen ⚙ menu** re-tabbed to match the detail, grouped by function: **Driving** (mode · speed ·
+  collision avoidance) · **Camera** (night vision · video quality) · **Audio** (speaker + call volume) ·
+  **Controls** (joystick config). Consistent with the robot detail's sections.
+- **Clearer audio labels** everywhere, so the two volumes aren't confusing:
+  - **Speaker volume** — the robot's own voice & sounds (`playbackVolume`).
+  - **Call volume** — your voice through the robot, two-way talk (`talkbackVolume`).
+- **Fixed** the speaker-volume showing "—": the robot does report `playbackVolume`, it just wasn't
+  published to the state. Now it shows the real value.
+
 ## 0.26.50 — day/night vision
 - Added **day/night vision** control, matching the app's fullscreen day/night button. Three modes:
   **Auto / Day / Night** (the Air 2's `shootMode`, opcode 102035; confirmed 0=Auto, 1=Day, 2=Night

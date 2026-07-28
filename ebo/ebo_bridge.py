@@ -1591,6 +1591,7 @@ class Bridge:
             "battery": b.get("percentage"),
             "charging": "true" if b.get("chargeStatus") else "false",
             "wifi": t.get("wifiStrength"),
+            "volume": se.get("playbackVolume"),   # speaker volume (robot's own voice/sounds) — was missing
             "recording": "true" if stt.get("isVideoRecording") else "false",
             "laser": "true" if stt.get("laserStatus") else "false",
             "speed": se.get("moveSpeed"),

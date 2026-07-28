@@ -575,16 +575,28 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
 <dialog id="fsopts"><div class="in">
   <h3>Drive settings</h3>
   <div class="tabs">
-    <button class="tab on" data-tab="set" onclick="fsTab('set')">Settings</button>
+    <button class="tab on" data-tab="drv" onclick="fsTab('drv')">Driving</button>
+    <button class="tab" data-tab="cam" onclick="fsTab('cam')">Camera</button>
+    <button class="tab" data-tab="aud" onclick="fsTab('aud')">Audio</button>
     <button class="tab" data-tab="ctl" onclick="fsTab('ctl')">Controls</button>
-    <button class="tab" data-tab="aux" onclick="fsTab('aux')">Auxiliary</button>
   </div>
-  <div class="tabp" data-tab="set">
+  <div class="tabp" data-tab="drv">
     <label>Driving mode</label>
     <select id="fs-dm" onchange="if(fsNode)cmd(fsNode,'move_mode/set',this.value)">${''}</select>
     <label>Movement speed (<span id="fs-mspd-v">—</span>)</label>
     <input id="fs-mspd" type="range" min="1" max="100" value="50" onchange="if(fsNode)cmd(fsNode,'speed/set',this.value)" oninput="document.getElementById('fs-mspd-v').textContent=this.value">
-    <label>Call volume (<span id="fs-cvol-v">—</span>)</label>
+    <label class="tgl"><span>Collision avoidance</span>
+      <input type="checkbox" id="fs-avoid" onchange="if(fsNode)cmd(fsNode,'avoid_obstacle/set',this.checked?'on':'off')"></label>
+  </div>
+  <div class="tabp" data-tab="cam" style="display:none">
+    <label>Night vision</label>
+    <select id="fs-nv" onchange="if(fsNode)cmd(fsNode,'night_vision/set',this.value)">${''}</select>
+    <label>Video quality</label><select id="fs-vq" onchange="if(fsNode)cmd(fsNode,'video_quality/set',this.value)">${''}</select>
+  </div>
+  <div class="tabp" data-tab="aud" style="display:none">
+    <label>Speaker volume — the robot's own voice &amp; sounds (<span id="fs-svol-v">—</span>)</label>
+    <input id="fs-svol" type="range" min="0" max="100" value="50" onchange="if(fsNode)cmd(fsNode,'volume/set',this.value)" oninput="document.getElementById('fs-svol-v').textContent=this.value">
+    <label>Call volume — your voice through the robot (<span id="fs-cvol-v">—</span>)</label>
     <input id="fs-cvol" type="range" min="0" max="100" value="50" onchange="if(fsNode)cmd(fsNode,'talkback_volume/set',this.value)" oninput="document.getElementById('fs-cvol-v').textContent=this.value">
   </div>
   <div class="tabp" data-tab="ctl" style="display:none">
@@ -603,12 +615,6 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
     </label>
     <label>Joystick sensitivity (<span id="fs-spd-v">60</span>)</label>
     <input id="fs-spd" type="range" min="1" max="100" value="60" oninput="driveSpeed=+this.value;document.getElementById('fs-spd-v').textContent=this.value">
-    <label>Video quality</label><select id="fs-vq" onchange="if(fsNode)cmd(fsNode,'video_quality/set',this.value)">${''}</select>
-  </div>
-  <div class="tabp" data-tab="aux" style="display:none">
-    <label class="tgl"><span>Collision avoidance</span>
-      <input type="checkbox" id="fs-avoid" onchange="if(fsNode)cmd(fsNode,'avoid_obstacle/set',this.checked?'on':'off')"></label>
-    <div class="note">The Enabot app also shows "Auxiliary View" here — that's an app-only on-screen overlay, not a robot setting, so it isn't included.</div>
   </div>
   <div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn pri" onclick="document.getElementById('fsopts').close()">Done</button></div>
   <div class="note">More actions (talk, listen, recording, snapshot, patrol) coming soon.</div>
@@ -856,23 +862,28 @@ function fsTab(name){
 }
 function openFsSettings(){
   const d=document.getElementById('fsopts'); const r=ROBOTS.find(x=>x.node===fsNode)||{}, st=r.state||{};
-  // Settings tab (mirrors the app's fullscreen menu): driving mode, movement speed, call volume
+  // Driving tab: driving mode, movement speed, collision avoidance
   document.getElementById('fs-dm').innerHTML=opt(DM, st.move_mode);
   document.getElementById('fs-mspd').value=st.speed??50;
   document.getElementById('fs-mspd-v').textContent=st.speed??'—';
+  document.getElementById('fs-avoid').checked = st.avoid_obstacle==='true';
+  // Camera tab: night vision, video quality
+  document.getElementById('fs-nv').innerHTML=opt(NV, st.night_vision);
+  document.getElementById('fs-vq').innerHTML=opt(VQ, st.video_quality);
+  // Audio tab: speaker volume (robot's own voice/sounds) + call volume (your voice through the robot)
+  const sv=st.volume??st.playback_volume;
+  document.getElementById('fs-svol').value=sv??50;
+  document.getElementById('fs-svol-v').textContent=sv??'—';
   document.getElementById('fs-cvol').value=st.talkback_volume??50;
   document.getElementById('fs-cvol-v').textContent=st.talkback_volume??'—';
-  // Controls tab (our joystick config + video)
-  document.getElementById('fs-vq').innerHTML=opt(VQ, st.video_quality);
+  // Controls tab: our joystick config
   document.getElementById('fs-spd-v').textContent=driveSpeed;
   d.querySelector('#fs-spd').value=driveSpeed;
   document.getElementById('fs-ctrl').value=fsCtrlMode;
   document.getElementById('fs-swap').checked=fsDualSwap;
   document.getElementById('fs-joyside').value=fsJoySide;
-  // Auxiliary tab (collision avoidance)
-  document.getElementById('fs-avoid').checked = st.avoid_obstacle==='true';
   syncFsOpts();
-  fsTab('set');
+  fsTab('drv');
   d.showModal();
 }
 let wakeTimer=null;
@@ -1110,9 +1121,9 @@ function detailView(r){
       <label>Eyes</label><select onchange="cmd('${r.node}','eyes/set',this.value)">${opt(EY,st.eyes)}</select>
     </div>
     <div class="sec"><h4>Audio</h4>
-      <label>Volume — speaker (${st.volume??st.playback_volume??'—'})</label>
+      <label>Speaker volume — the robot's own voice &amp; sounds (${st.volume??st.playback_volume??'—'})</label>
       <input type="range" min="0" max="100" value="${st.volume??st.playback_volume??50}" onchange="cmd('${r.node}','volume/set',this.value)">
-      <label>Call volume — two-way talk (${st.talkback_volume??'—'})</label>
+      <label>Call volume — your voice through the robot, two-way talk (${st.talkback_volume??'—'})</label>
       <input type="range" min="0" max="100" value="${st.talkback_volume??50}" onchange="cmd('${r.node}','talkback_volume/set',this.value)">
     </div>
     <div class="sec"><h4>Recording</h4>
