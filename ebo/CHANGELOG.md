@@ -1,5 +1,19 @@
 # Changelog — Enabot integration
 
+## 0.26.55 — keyboard-in-dialog fix, connection badge, better remote HLS
+- **Fixed: keyboard drove the robot while typing.** When the "Save route" name box (or any dialog) was
+  open, pressing `a`/`w`/`s`/`d`/arrows moved the robot instead of typing (the `a` key sits right over
+  the drive stick). The keyboard now ignores driving keys while you're in a text field or a dialog is open.
+- **Connection badge + warning.** The fullscreen top bar shows a **green "WebRTC"** (fluid ~200 ms) or
+  **amber "HLS"** badge; on HLS a banner warns the video is delayed (~1 s) — fine to watch/steer gently,
+  not for reactive driving. The robot page also shows, before you open fullscreen, whether you'll get
+  fluid LAN WebRTC or remote HLS.
+- **Better remote HLS.** The player now hugs the live edge (catch-up playback), and mediamtx keeps a
+  shorter playlist → less lag on the remote/fallback path. **LAN WebRTC is untouched.**
+- **Docs:** new "Video connection: LAN vs remote" section explaining why remote is slower and the
+  relay/VPN (Tailscale/TURN) options for fluid remote video.
+
+
 ## 0.26.54 — fullscreen works from cellular / remote (instant HLS instead of a WebRTC hang)
 - **Fixed the fullscreen "drive" view failing when you're not on the robot's LAN** (mobile data, Nabu
   Casa remote, a reverse proxy). The fluid path is **WebRTC**, whose media needs a *direct*

@@ -516,6 +516,13 @@ input[type=range]{width:100%}
   gap:10px;padding:10px 14px;color:#fff;font-size:13px;background:linear-gradient(#000a,#0000)}
 .fs-info{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .fs-info .b{background:#0006;padding:3px 8px;border-radius:8px;backdrop-filter:blur(3px)}
+.fs-info .b.rtc{background:rgba(18,184,134,.55);color:#eafff5}
+.fs-info .b.hls{background:rgba(214,138,0,.6);color:#fff5e0}
+.fs-hlswarn{position:absolute;top:52px;left:50%;transform:translateX(-50%);z-index:3;max-width:92%;
+  background:rgba(176,90,0,.92);color:#fff;font-size:12px;line-height:1.35;padding:7px 12px;border-radius:10px;
+  text-align:center;backdrop-filter:blur(3px)}
+.connhint{font-size:12px;margin-top:5px;color:#8a929a}
+.connhint.hls{color:#c77d00}
 .fs-actions{display:flex;align-items:center;gap:8px}
 .fs-ic{width:46px;height:46px;border-radius:50%;background:#0007;color:#fff;border:0;font-size:19px;cursor:pointer;
   display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
@@ -579,6 +586,7 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
   <video id="fsvid" autoplay muted playsinline></video>
   <div class="fs-tap" onclick="toggleFsControls()"></div>
   <div class="fs-top" id="fs-top"></div>
+  <div id="fs-hlswarn" class="fs-hlswarn" style="display:none">⚠ Connessione <b>HLS</b> — video in ritardo di ~1&nbsp;s. Va bene per guardare e comandare piano, <b>non</b> per la guida reattiva. Il video fluido (~200&nbsp;ms) è disponibile solo in LAN, o da remoto con un relay/VPN.</div>
   <div id="fs-drive"></div>
 </div>
 
@@ -970,6 +978,14 @@ function hlsSrc(node){
 // WebRTC can never connect and we'd just hang ~15 s before ripiego. Heuristic on the panel's own
 // hostname: a private/LAN address (or a bare local name) = same network; anything else = remote. HLS
 // (Ingress-proxied) works either way, so a wrong guess only costs the fluid path, never playback.
+// Connection hint for the detail page: tells you, before you open fullscreen, which video path you'll
+// get — fluid WebRTC on the LAN, or the slower HLS from remote. (Detected from the panel's hostname.)
+function connHint(){
+  return isLikelyRemote()
+    ? '🔗 Da remoto · il video userà <b>HLS</b> (~1&nbsp;s, meno fluido). Fluido solo in LAN o con relay/VPN.'
+    : '🔗 In LAN · video <b>WebRTC</b> fluido (~200&nbsp;ms)';
+}
+function connHintClass(){ return 'connhint'+(isLikelyRemote()?' hls':''); }
 function isLikelyRemote(){
   const h=(location.hostname||'').toLowerCase();
   if(!h||h==='localhost') return false;
@@ -997,9 +1013,11 @@ function _cleanupVid(v){
   try{ v.removeAttribute('src'); v.load(); }catch(e){}
 }
 // video-mode indicator shown in the top bar (WebRTC·fps, or HLS fallback, or connecting)
-function _fsBadge(txt){
+function _fsBadge(txt, kind){
   const el=document.getElementById('fs-badge2');   // lives inside the top info bar (fsTop)
-  if(el) el.textContent=txt;
+  if(el){ el.textContent=txt; el.className='b'+(kind==='hls'?' hls':(kind==='webrtc'?' rtc':'')); }
+  const w=document.getElementById('fs-hlswarn');    // show the "HLS is slower" warning only on HLS
+  if(w) w.style.display=(kind==='hls')?'':'none';
 }
 function _fsWatchStats(v, pc){
   if(v._statTimer) clearInterval(v._statTimer);
@@ -1007,7 +1025,7 @@ function _fsWatchStats(v, pc){
     if(v._pc!==pc){ return; }
     try{ const st=await pc.getStats(); let fps=null,w=0;
       st.forEach(s=>{ if(s.type==='inbound-rtp'&&s.kind==='video'){ fps=s.framesPerSecond; w=s.frameWidth||w; } });
-      _fsBadge('WebRTC · '+(fps==null?'…':Math.round(fps))+'fps'+(w?' · '+w+'px':''));
+      _fsBadge('WebRTC · '+(fps==null?'…':Math.round(fps))+'fps'+(w?' · '+w+'px':''), 'webrtc');
     }catch(e){}
   },1000);
 }
@@ -1057,7 +1075,11 @@ function hlsPlay(node){
   const v=document.getElementById('fsvid'); const src=hlsSrc(node);
   if(!src) return;
   if(window.Hls && Hls.isSupported()){
-    const hls=new Hls({lowLatencyMode:true, backBufferLength:4});
+    // Hug the live edge: stay ~1s behind, and if we drift too far back (buffering) jump forward or
+    // speed up slightly to catch up — this is what makes the remote HLS feel less laggy. (LAN uses
+    // WebRTC, so this only affects the remote/fallback HLS path.)
+    const hls=new Hls({lowLatencyMode:true, backBufferLength:4,
+      liveSyncDuration:1, liveMaxLatencyDuration:4, maxLiveSyncPlaybackRate:1.5});
     hls.on(Hls.Events.ERROR,(e,d)=>{ if(d.fatal){ try{hls.destroy();}catch(x){} setTimeout(()=>{ if(document.getElementById('fs').style.display==='block') hlsPlay(node); },1500); }});
     hls.loadSource(src); hls.attachMedia(v); v._hls=hls;
     v.play().catch(()=>{});
@@ -1080,7 +1102,7 @@ async function fsPlay(node){
   // HLS (which works remotely). The status overlay clears once the video actually starts playing;
   // hls.js self-heals the first few seconds while the robot wakes + publishes its first segment.
   if(isLikelyRemote()){
-    _fsBadge('HLS (remoto)');
+    _fsBadge('HLS · remoto', 'hls');
     console.log('[ebo] off-LAN → HLS diretto (WebRTC saltato)');
     v.addEventListener('playing',()=>{ if(open()) _fsStatus(null); },{once:true});
     hlsPlay(node);
@@ -1109,7 +1131,7 @@ async function fsPlay(node){
     if(++iceFails>=2) break;          // answer OK but ICE won't connect → network issue → HLS
     await new Promise(r=>setTimeout(r,600));
   }
-  if(open()){ _fsStatus(null); _fsBadge('HLS (ripiego)'); console.log('[ebo] WHEP unavailable → HLS fallback'); hlsPlay(node); }
+  if(open()){ _fsStatus(null); _fsBadge('HLS · ripiego', 'hls'); console.log('[ebo] WHEP unavailable → HLS fallback'); hlsPlay(node); }
 }
 let _driveVQ=null;   // video quality saved on entering drive, restored on exit
 function enterFS(node){
@@ -1151,7 +1173,16 @@ function exitFS(){
 // keyboard driving in fullscreen: arrow keys (or WASD) hold-to-move, Esc exits. Multiple keys held
 // at once combine (e.g. Up+Right = forward-right diagonal) — each key adds/removes its own direction.
 const KEYDIR={ArrowUp:'fwd',ArrowDown:'back',ArrowLeft:'left',ArrowRight:'right',w:'fwd',s:'back',a:'left',d:'right'};
+// When you're typing in a field (e.g. the "Save route" name box) or ANY modal dialog is open, the
+// keyboard must NOT drive the robot — otherwise 'a'/'w'/'s'/'d' move it instead of typing. (The dialog
+// backdrop blocks clicks on the sticks, but key events still reach the document, hence this guard.)
+function _typingOrDialog(e){
+  const t=e.target, tag=t&&t.tagName;
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||(t&&t.isContentEditable)) return true;
+  return !!document.querySelector('dialog[open]');
+}
 document.addEventListener('keydown',e=>{
+  if(_typingOrDialog(e)) return;                 // typing / a dialog is open → let the keys type, don't drive
   const open=document.getElementById('fs').style.display==='block';
   if(e.key==='Escape'&&open){ exitFS(); return; }
   if(!open) return;
@@ -1160,6 +1191,7 @@ document.addEventListener('keydown',e=>{
   startMove(document.getElementById('fsvid').getAttribute('data-node'),dir);   // auto-repeat ignored inside
 });
 document.addEventListener('keyup',e=>{
+  if(_typingOrDialog(e)) return;
   const dir=KEYDIR[e.key]; if(dir){ e.preventDefault(); stopMove(dir); }
 });
 
@@ -1187,6 +1219,7 @@ function detailView(r){
     ${charging? '<div class="warn">🔌 On the charger — take the robot off the base to drive it.</div>':''}
     <div class="dname"><span id="d-dot" class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
     <div id="d-meta" class="dmeta">${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}</div>
+    <div id="d-conn" class="${connHintClass()}">${connHint()}</div>
     <div class="row">
       <button id="d-cam" class="btn ${cam?'pri':''}" onclick="cmd('${r.node}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
       <button class="btn" onclick="cmd('${r.node}','camera/set','on')">☀ Wake</button>

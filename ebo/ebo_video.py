@@ -106,7 +106,7 @@ class VideoPipeline(IVideoFrameObserver):
                     # only mux HLS when a client actually asks for it (fallback). Always-remux would
                     # burn CPU generating HLS even while everyone is on the fluid WebRTC path.
                     "hlsAlwaysRemux: no\n"
-                    "hlsSegmentCount: 7\n"
+                    "hlsSegmentCount: 3\n"     # shorter playlist → the player sits closer to live (lower remote latency)
                     "hlsSegmentDuration: 1s\n"
                     "hlsPartDuration: 200ms\n"
                     "hlsAllowOrigin: '*'\n"
