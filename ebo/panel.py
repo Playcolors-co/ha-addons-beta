@@ -878,7 +878,7 @@ function fsTop(node){
     <div class="fs-actions">
       <button class="fs-ic ${laserOn?'on':''}" id="fs-laser" onclick="toggleLaser('${node}')" title="Laser">•</button>
       <button class="fs-ic" id="fs-night" onclick="cycleNight('${node}')" title="Day/Night vision">${NV_ICON[st.night_vision]||'🌗'}</button>
-      <button class="fs-ic ${st.route_recording==='true'?'rec':''}" id="fs-rec" onclick="recordRoute('${node}')" title="Record a route (drive to teach a path)">⏺</button>
+      ${st.routes_supported==='true' ? `<button class="fs-ic ${st.route_recording==='true'?'rec':''}" id="fs-rec" onclick="recordRoute('${node}')" title="Record a route (drive to teach a path)">⏺</button>` : ''}
       <button class="fs-ic" onclick="cmd('${node}','dock','')" title="Return to base">⌂</button>
       <button class="fs-ic" onclick="openFsSettings()" title="Settings">⚙</button>
     </div>`;
@@ -1260,10 +1260,10 @@ function detailView(r){
       <label class="tgl"><span>Motion recording — logs the robot's activity (not a path)</span>
         <input type="checkbox" ${st.sports_record==='true'?'checked':''} onchange="cmd('${r.node}','sports_record/set',this.checked?'on':'off')"></label>
     </div>
-    <div class="sec"><h4>Routes — teach &amp; repeat</h4>
+    ${st.routes_supported==='true' ? `<div class="sec"><h4>Routes — teach &amp; repeat</h4>
       <div id="d-routes">${routesHtml(r)}</div>
       <div class="note" style="font-size:11px;color:#8a929a;margin-top:8px">Record a new route from the ⛶ fullscreen view: tap ⏺ to start, drive the path, tap ⏺ again to stop, then name &amp; save it. Repeat any saved route here.</div>
-    </div>
+    </div>` : ''}
     <div class="row" style="margin-top:14px"><button class="btn danger" onclick="removeRobot('${r.node}')">🗑 Remove from account</button></div>
   </div>`;
 }

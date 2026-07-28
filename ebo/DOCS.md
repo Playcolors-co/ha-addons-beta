@@ -166,6 +166,10 @@ should only be used when you can see it.
   — this can't be forced from the server SDK. **Talk** (your audio → robot speaker) works.
 - One control session per account: while the add-on is active, the EBO HOME app on the same
   account may be disconnected, and vice versa.
+- **Routes (teach & repeat) are model-dependent.** They rely on the robot's route/patrol firmware,
+  which the **EBO Air 2 does not have** (its firmware ignores the route commands — the official app
+  hides patrol for the Air 2 too). The panel detects this at runtime and **hides the Routes UI** when
+  the robot doesn't support it; it shows only on models that answer the route query (e.g. SE).
 - Depends on Enabot's cloud API — a change on their side may require an update.
 
 ## Troubleshooting

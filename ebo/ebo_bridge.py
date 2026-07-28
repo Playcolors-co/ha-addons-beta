@@ -181,6 +181,11 @@ class Bridge:
         self.patrol_choice = PATROL_AUTO  # currently selected patrol route
         self._route_rec = False          # True while recording a route (teach-by-driving)
         self._route_pending = None       # RouteDataInfo from 103206, awaiting a name + save
+        # Route/patrol support is model-dependent: the EBO Air 2 firmware ignores these opcodes (the
+        # official app hides patrol for it). We probe with 104001 (get routes) on connect: a reply
+        # (104002) means supported; silence past a timeout means unsupported → the panel hides the UI.
+        self._routes_supported = None    # None=unknown, True/False once decided
+        self._routes_query_ts = 0.0      # when we first asked for routes
 
         # current movement vector + watchdog
         self.vec = {"lx": 0, "ly": 0, "rx": 0, "ry": 0, "buttons": 0}
@@ -992,6 +997,7 @@ class Bridge:
                 except Exception as e:
                     log("[discovery] re-announce failed:", e)
         elif mid == RESP_ROUTES:
+            self._routes_supported = True     # the robot answered → route/patrol works on this model
             lst = data.get("list") or []
             self.routes = [(r.get("routeName") or ("route %s" % r.get("id")),
                             r.get("id")) for r in lst if r.get("id") is not None]
@@ -1671,7 +1677,13 @@ class Bridge:
             "talkback_volume": se.get("talkbackVolume"),
             "sports_record": "true" if se.get("sportsRecord") else "false",
             "call_rec": "true" if se.get("callAutoRecording") else "false",
-            # routes / patrol (teach-and-repeat): the saved routes, plus recording state
+            # routes / patrol (teach-and-repeat): the saved routes, plus recording state.
+            # routes_supported: the panel shows the Routes UI only when the robot actually answers the
+            # route query — the Air 2 firmware ignores route/patrol, so it stays hidden there.
+            "routes_supported": ("true" if self._routes_supported
+                                 else ("false" if (self._routes_query_ts
+                                                   and time.time() - self._routes_query_ts > 15)
+                                       else "unknown")),
             "routes": [{"id": rid, "name": name} for (name, rid) in self.routes],
             "route_recording": "true" if self._route_rec else "false",
             "route_pending": "true" if self._route_pending else "false",
@@ -1799,7 +1811,9 @@ class Bridge:
         time.sleep(1)
         self.send(OP_GET_SETTINGS)
         self.send(OP_MOTION_GET)          # fetch obstacle-avoidance / steering / etc.
-        self.send(OP_GET_ROUTES)          # populate the patrol-route select
+        self.send(OP_GET_ROUTES)          # populate the patrol-route select (+ probe route support)
+        if not self._routes_query_ts:
+            self._routes_query_ts = time.time()
         log("[*] bridge running")
         last_check = time.time()
         try:

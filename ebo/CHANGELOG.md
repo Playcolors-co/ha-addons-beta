@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.26.57 — Routes hidden on robots that don't support them (e.g. Air 2)
+- **Routes (teach & repeat)** needs the robot's route/patrol firmware. The **EBO Air 2 doesn't have
+  it** — its firmware silently ignores the route/patrol commands (the official app hides patrol for the
+  Air 2 for the same reason). Verified live: the robot never answers the route query, the record
+  start/stop, or returns a recorded path.
+- The panel now **detects route support at runtime** (whether the robot answers the route query) and
+  **hides the Routes section + the ⏺ record button** when unsupported — no more silently-failing UI.
+  On models that do support it (e.g. SE) the Routes UI appears exactly as before.
+
+
 ## 0.26.56 — English-only UI strings + debug off
 - All panel strings are now **English** (the add-on is English-only): the connection badge/warning, the
   "Connecting to the robot…" overlay and the detail connection hint were showing Italian.
