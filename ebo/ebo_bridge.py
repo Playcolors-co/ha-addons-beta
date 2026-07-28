@@ -1000,7 +1000,8 @@ class Bridge:
             with self.lock:
                 # watchdog: if the command expired, zero it (dead-man's switch)
                 if self.vec_deadline and now > self.vec_deadline:
-                    self.vec = {"lx": 0, "ly": 0, "rx": 0, "ry": 0, "buttons": 0}
+                    self.vec = {"lx": 0, "ly": 0, "rx": 0, "ry": 0,
+                                "buttons": self.vec.get("buttons", 0)}   # keep scheme on the stop frame
                     self.vec_deadline = 0.0
                 v = dict(self.vec)
                 moving = any(v[k] for k in ("lx", "ly", "rx", "ry"))
@@ -1012,9 +1013,11 @@ class Bridge:
                 was_moving = False
             time.sleep(0.1)
 
-    def set_move(self, lx=0, ly=0, rx=0, ry=0, hold=0.6):
+    def set_move(self, lx=0, ly=0, rx=0, ry=0, hold=0.6, buttons=0):
+        # buttons = the control scheme the robot should use (1 = dual-stick: independent throttle + a
+        # CONTINUOUS turn; 0 = single joystick: the vector is a heading). The panel picks it per control.
         with self.lock:
-            self.vec = {"lx": lx, "ly": ly, "rx": rx, "ry": ry, "buttons": 0}
+            self.vec = {"lx": lx, "ly": ly, "rx": rx, "ry": ry, "buttons": int(buttons)}
             self.vec_deadline = time.time() + hold if any((lx, ly, rx, ry)) else 0
 
     def _set_motion(self, field, value):
@@ -1434,7 +1437,7 @@ class Bridge:
             elif topic.endswith("/move/vector"):
                 v = json.loads(payload)
                 self.set_move(v.get("lx", 0), v.get("ly", 0), v.get("rx", 0),
-                              v.get("ry", 0), v.get("hold", 0.6))
+                              v.get("ry", 0), v.get("hold", 0.6), v.get("buttons", 0))
             elif topic.endswith("/sleep/set"):
                 self.send(OP_SLEEP, {"isSleeping": payload.lower() in ("on", "true", "1")})
             elif topic.endswith("/wake"):

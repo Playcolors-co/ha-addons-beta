@@ -1,5 +1,16 @@
 # Changelog — Enabot integration
 
+## 0.26.52 — dual-stick turns continuously (matches the official app)
+- **Fixed steering**: holding the dual-stick to turn now makes the robot **keep turning**, instead of
+  jerking ~90° and then going straight. The move command (opcode 101007) carries a `buttons` flag that
+  the official app uses as the control scheme — **1 = dual-stick** (independent throttle + steering →
+  continuous turn), **0 = single joystick** (the vector is a heading). We were always sending 0, so the
+  robot treated the dual-stick like a single joystick. Now the panel sends the right scheme per control:
+  - **dual sticks → 1** (continuous turn, like the app's 双摇杆 mode)
+  - **single joystick** (detail + fullscreen) **→ 0** (heading, like the app's 单摇杆 mode)
+  - **keyboard / D-pad → follows the chosen control type** (dual or single), so it behaves consistently
+    with whatever you drive with.
+
 ## 0.26.51 — settings grouped by function + clearer audio labels
 - **Fullscreen ⚙ menu** re-tabbed to match the detail, grouped by function: **Driving** (mode · speed ·
   collision avoidance) · **Camera** (night vision · video quality) · **Audio** (speaker + call volume) ·

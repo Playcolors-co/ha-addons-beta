@@ -720,10 +720,15 @@ function driveNow(n){ SEL=n; render(true); bg(n,'camera/set','on'); setTimeout((
 // a smooth diagonal instead of only the last key winning. A watchdog re-sends while held. ---
 let driveSpeed=60, moveNode=null, moveTimer=null;
 const pressed=new Set();          // currently-held directions (keyboard and/or D-pad)
-function sendVec(node,ly,rx,hold){
+function sendVec(node,ly,rx,hold,buttons){
   fetch(B+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({node,suffix:'move/vector',payload:JSON.stringify({ly,rx,hold})})}).catch(()=>{});
+    body:JSON.stringify({node,suffix:'move/vector',payload:JSON.stringify({ly,rx,hold,buttons:buttons||0})})}).catch(()=>{});
 }
+// Control scheme flag, exactly like the official app: buttons=1 = dual-stick (independent throttle +
+// steering → the robot keeps TURNING while held); buttons=0 = single joystick (the vector is a heading,
+// so a turn is a one-shot ~heading change). Sending 0 for a dual-stick turn is what made the robot jerk
+// ~90° then go straight. The keyboard/D-pad follows the chosen control type (fsCtrlMode).
+function dualFlag(){ return fsCtrlMode==='dual' ? 1 : 0; }
 function _driveTick(){
   if(!moveNode) return;
   let ly=0, rx=0;
@@ -737,7 +742,7 @@ function _driveTick(){
   // forward+right becomes a smooth forward ARC (each axis ~0.7×speed) instead of a spin.
   const mag=Math.hypot(ly,rx);
   if(mag>1){ ly/=mag; rx/=mag; }
-  sendVec(moveNode, Math.round(ly*driveSpeed), Math.round(rx*driveSpeed), 0.7);
+  sendVec(moveNode, Math.round(ly*driveSpeed), Math.round(rx*driveSpeed), 0.7, dualFlag());
 }
 function startMove(node,dir){       // press a direction — add it to the combined vector
   moveNode=node;
@@ -771,7 +776,7 @@ function initJoysticks(){
     if(j._init) return; j._init=true;
     const knob=j.querySelector('.joy-knob'), node=j.getAttribute('data-node');
     let cx=0,cy=0,R=1,vx=0,vy=0,timer=null;
-    const tick=()=>{ if(vx||vy) sendVec(node, Math.round(vy*driveSpeed), Math.round(vx*driveSpeed), 0.6); };
+    const tick=()=>{ if(vx||vy) sendVec(node, Math.round(vy*driveSpeed), Math.round(vx*driveSpeed), 0.6, 0); };   // single joystick = heading scheme
     const aim=(px,py)=>{ let dx=(px-cx)/R, dy=(py-cy)/R; const m=Math.hypot(dx,dy); if(m>1){dx/=m;dy/=m;}
       vx=dx; vy=dy; knob.style.transform='translate('+(dx*R*0.6)+'px,'+(dy*R*0.6)+'px)'; };
     const down=e=>{ const b=j.getBoundingClientRect(); cx=b.left+b.width/2; cy=b.top+b.height/2; R=b.width/2;
@@ -812,7 +817,7 @@ function fsTop(node){
 }
 // dual-stick driving: LEFT = forward/back (vertical), RIGHT = turn (horizontal). Both can be held at
 // once (one thumb each) to drive a smooth curve. Sends the combined move/vector at ~8 Hz.
-function _fsDriveTick(){ if(fsNode && (fsDX||fsDY)) sendVec(fsNode, Math.round(fsDY*driveSpeed), Math.round(fsDX*driveSpeed), 0.6); }
+function _fsDriveTick(){ if(fsNode && (fsDX||fsDY)) sendVec(fsNode, Math.round(fsDY*driveSpeed), Math.round(fsDX*driveSpeed), 0.6, 1); }   // dual sticks = continuous-turn scheme
 function initStick(el){
   if(el._init) return; el._init=true;
   const knob=el.querySelector('.joy-knob'), axis=el.getAttribute('data-axis');
