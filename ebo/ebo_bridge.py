@@ -98,12 +98,22 @@ OP_ROAM = 101061          # {"isRoamOn": bool, "sensitivity": int} — autonomou
 OP_AI_TRACK = 103049      # StartAiTrackData {"mode": int, "trackTarget": int}
 OP_EYES = 104057          # EyesEmojiModeData {"status","mode",...}
 OP_AI_ASK = 103301        # AI chat: {"modelType","session","question","userId"}
+# Motion/Sport settings (the app's fullscreen "Sport settings"). The whole MotionSettings object is
+# sent at once (103023); the current values are requested with 103021 (robot replies 103022, and
+# echoes 103024 after a set). MotionSettings = {status, pickUpCheck, autoDesktopMode, avoidobstacle,
+# steeringSensitivity (0..3), abnormalExerciseReminder}.
+OP_MOTION_GET = 103021
+OP_MOTION_SET = 103023
+RESP_MOTION = 103022
+RESP_MOTION_ECHO = 103024
 
 # value tables (from the app's UI): name shown in HA -> integer sent to the robot
 VIDEO_QUALITY_MAP = {"Low": 1, "Medium": 2, "High": 3}
 IMAGE_STYLE_MAP = {"Standard": 0, "Vivid": 1, "Soft": 2}
 SHOOT_MODE_MAP = {"Normal": 0, "Wide": 1, "Follow": 2}
 MOVE_MODE_MAP = {"Mode 1": 0, "Mode 2": 1, "Mode 3": 2}
+# steeringSensitivity has 4 levels (0..3) in the app; names are our own (the app's strings are obfuscated)
+STEERING_MAP = {"Low": 0, "Medium": 1, "High": 2, "Max": 3}
 # Eyes/emoji display (opcode 104057). Reconstructed from the Air 2 app: the payload is
 # EyesEmojiModeData {status, mode, dynamicEyes{autoFollow,styleId}, timeEyes{styleId}, customEyes{timeStyle}}.
 # mode 1=Dynamic (styleId 1..6), 2=Clock (styleId 1..2), 3=Custom. The style lists are hardcoded in
@@ -142,6 +152,7 @@ class Bridge:
         self.sid = self.s.get("sid")
         self.telemetry = {}
         self.settings = {}
+        self.motion = {}          # current MotionSettings (obstacle avoidance, steering, etc.)
         self.info = {}
         self._integ_announced = False    # announced this robot to the companion integration?
         self.rtc_state = None
@@ -799,6 +810,7 @@ class Bridge:
                 self.send(OP_HANDSHAKE, {"userId": self.account})
                 time.sleep(1)
                 self.send(OP_GET_SETTINGS)
+                self.send(OP_MOTION_GET)
                 self.send(OP_GET_ROUTES)
             except Exception as e:
                 log("[!] reconnect failed:", e)
@@ -938,6 +950,12 @@ class Bridge:
             # callAutoRecording echoed back?) — helps diagnose read-back gaps.
             log("[settings] %s" % json.dumps(data, sort_keys=True), level="debug")
             self._publish_settings()
+        elif mid in (RESP_MOTION, RESP_MOTION_ECHO):
+            # MotionSettings (obstacle avoidance, steering sensitivity, pickup, desktop mode, …)
+            if isinstance(data, dict):
+                self.motion.update(data)
+            log("[motion] %s" % json.dumps(data, sort_keys=True))
+            self._publish_settings()
         elif mid == OP_INFO:
             self.info = data
             self._publish_telemetry()      # refresh fw/ip/ssid diagnostic sensors
@@ -987,6 +1005,25 @@ class Bridge:
         with self.lock:
             self.vec = {"lx": lx, "ly": ly, "rx": rx, "ry": ry, "buttons": 0}
             self.vec_deadline = time.time() + hold if any((lx, ly, rx, ry)) else 0
+
+    def _set_motion(self, field, value):
+        """Change one MotionSettings field and re-send the WHOLE object (opcode 103023) — the robot
+        expects the full struct. We start from the last values the robot reported (self.motion), or
+        sensible defaults if we haven't read them yet (avoidobstacle is also echoed in the settings
+        blob, so we can seed it from there)."""
+        m = self.motion or {}
+        payload = {
+            "status": 0,
+            "pickUpCheck": bool(m.get("pickUpCheck", False)),
+            "autoDesktopMode": bool(m.get("autoDesktopMode", False)),
+            "avoidobstacle": bool(m.get("avoidobstacle", self.settings.get("avoidobstacle", False))),
+            "steeringSensitivity": int(m.get("steeringSensitivity", 0)),
+            "abnormalExerciseReminder": bool(m.get("abnormalExerciseReminder", False)),
+        }
+        payload[field] = value
+        self.motion.update({k: v for k, v in payload.items() if k != "status"})   # optimistic
+        self.send(OP_MOTION_SET, payload)
+        self._publish_settings()
 
     # ---------------- MQTT / Home Assistant ----------------
 
@@ -1118,6 +1155,8 @@ class Bridge:
                    "patrol/route/set", "patrol/start", "camera/set", "connected/set",
                    "rotate/set", "video_quality/set", "image_style/set", "shoot_mode/set",
                    "move_mode/set", "eyes/set", "roaming/set", "ai_track", "motion/set",
+                   "avoid_obstacle/set", "steering/set", "pickup_check/set", "desktop_mode/set",
+                   "abnormal_reminder/set",
                    "voice/set", "ai_ask", "cmd"):    # "cmd" = raw opcode escape hatch (AI/eyes)
             c.subscribe("%s/%s" % (NODE, _t))
         if not self.expose_mqtt:
@@ -1458,6 +1497,16 @@ class Bridge:
                     "timeEyes": {"styleId": style if mode == 2 else 1},
                     "customEyes": {"timeStyle": 0},
                 })
+            elif topic.endswith("/avoid_obstacle/set"):
+                self._set_motion("avoidobstacle", payload.lower() in ("on", "true", "1"))
+            elif topic.endswith("/steering/set"):
+                self._set_motion("steeringSensitivity", STEERING_MAP.get(payload, 0))
+            elif topic.endswith("/pickup_check/set"):
+                self._set_motion("pickUpCheck", payload.lower() in ("on", "true", "1"))
+            elif topic.endswith("/desktop_mode/set"):
+                self._set_motion("autoDesktopMode", payload.lower() in ("on", "true", "1"))
+            elif topic.endswith("/abnormal_reminder/set"):
+                self._set_motion("abnormalExerciseReminder", payload.lower() in ("on", "true", "1"))
             elif topic.endswith("/roaming/set"):
                 on = payload.lower() in ("on", "true", "1")
                 self.send(OP_ROAM, {"isRoamOn": on, "sensitivity": 5})
@@ -1509,6 +1558,7 @@ class Bridge:
         sd = t.get("sdcard", {})
         stor = t.get("storage", {})
         se = self.settings
+        mo = self.motion
         info = self.info
 
         def gb(x):
@@ -1532,6 +1582,13 @@ class Bridge:
             "image_style": _rev(IMAGE_STYLE_MAP, se.get("imageStyle")),
             "shoot_mode": _rev(SHOOT_MODE_MAP, se.get("shootMode")),
             "move_mode": _rev(MOVE_MODE_MAP, se.get("moveMode")),
+            # motion / sport settings (MotionSettings, opcode 103022). avoidobstacle is also echoed
+            # in the settings blob, so fall back to it when the MotionSettings read hasn't arrived.
+            "avoid_obstacle": "true" if mo.get("avoidobstacle", se.get("avoidobstacle")) else "false",
+            "steering": _rev(STEERING_MAP, mo.get("steeringSensitivity")),
+            "pickup_check": "true" if mo.get("pickUpCheck") else "false",
+            "desktop_mode": "true" if mo.get("autoDesktopMode") else "false",
+            "abnormal_reminder": "true" if mo.get("abnormalExerciseReminder") else "false",
             # storage
             "sd_present": "true" if sd.get("isPresent") else "false",
             "sd_free": gb(sd.get("availableBytes")),
@@ -1643,6 +1700,7 @@ class Bridge:
         self.send(OP_HANDSHAKE, {"userId": self.account})
         time.sleep(1)
         self.send(OP_GET_SETTINGS)
+        self.send(OP_MOTION_GET)          # fetch obstacle-avoidance / steering / etc.
         self.send(OP_GET_ROUTES)          # populate the patrol-route select
         log("[*] bridge running")
         last_check = time.time()
