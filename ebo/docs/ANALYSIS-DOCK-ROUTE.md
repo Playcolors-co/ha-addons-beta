@@ -2,8 +2,9 @@
 
 > **Audience:** the implementing agent. This is an **analysis / research brief**, not code.
 > Goal: pin down *definitively* what the Air 2 can and cannot do for **docking** and **route
-> (teach-and-repeat)**, separate fact from inference, and hand over an executable APK deep-dive plan
-> to close the remaining gaps.
+> (teach-and-repeat)**, separate fact from inference, hand over an executable APK deep-dive plan to
+> close the remaining gaps, and generalize it to a **per-model capability matrix** — which opcodes /
+> functions *each* EBO robot exposes (§8-§9), not just the Air 2.
 >
 > **Legend of confidence:** ✅ CONFIRMED (empirical or from decompiled app) · 🟡 INFERRED (consistent
 > with evidence, not proven) · ❓ UNKNOWN (needs the APK / a live probe to settle).
@@ -159,3 +160,92 @@ live-probe on the real robot (send + watch telemetry `101026` and physical behav
    "outbound-record → native dock" pattern** (§4) instead of a symmetric teach-and-repeat.
 5. Keep the native route path (already coded) gated behind the capability probe for models that do
    support it.
+6. **Build the per-model capability matrix (§8-§9).** Determining which opcodes/functions each robot
+   exposes is a prerequisite for correct multi-model support — start from the app's `productId →
+   capability` map (§8.2), fall back to safe runtime probing (§8.3), and land it as a data-driven
+   table in the add-on (§8.5).
+
+---
+
+## 8. Per-model capability matrix — which opcodes/functions each robot exposes
+
+The dock/route findings above are **Air 2-specific**. The same opcode can be implemented on one model
+and ignored on another (route is dead on the Air 2 but may be alive on the EBO X). So the analysis
+must generalize to: **for each model, which of the 112 opcodes / features does the firmware actually
+expose?** This section is the method to build that matrix definitively.
+
+### 8.1 How a robot identifies itself (the matrix key)
+- `101004` (`OP_INFO`) returns the device record: **`model`**, `sn`, `mac`, `ipcVersion`,
+  `masterMcuVersion`, `ip`, `wifiSsid` (`ebo_bridge.py:71,987-988,1712-1715`). `model` is the
+  human key we have today (defaulted to "EBO Air 2").
+- The **cloud robot list** `GET /api/v1/ebox/robots/robot` returns per-robot metadata incl.
+  `agora_info` and almost certainly a **`productId`/product-type** field (`ebo_cloud.py:9,113-114`).
+  ❓ Confirm the exact field name and values — **`productId` is the real key the app gates on**, more
+  reliable than the display `model` string.
+- **Action:** capture the raw robot-list JSON (one call, any account) and the `101004` payload for
+  each model you can access; record the `productId` ↔ `model` mapping.
+
+### 8.2 Authoritative source: the app's per-model capability map
+Apps like EBO HOME almost never probe each unit — they ship or fetch a **feature/capability map keyed
+by `productId`** that decides which UI (and thus which opcodes) each model gets. That map is the
+**definitive answer** to "which functions each robot exposes," without touching hardware.
+- Find it via the APK: search the decompiled sources **and** `assets/` / `res/raw/` for
+  `capability`, `abilities`, `support`, `productConfig`, `productId`, `feature`, `deviceConfig`,
+  `funcList`. It may be a static JSON asset or a response cached at login.
+- Also check the **cloud login / robot-list response** for an embedded capabilities/feature block
+  (MITM the app once, or inspect `ebo_cloud.py` login response fields).
+- Output: a table `productId → {featureFlags}` (e.g. `supportRoute`, `supportPatrol`,
+  `supportAutoRecharge`, `supportRoam`, `supportAiTrack`, `supportEyes`, …). This directly yields the
+  opcode-per-model matrix, because each feature flag maps to a known opcode group.
+
+### 8.3 Runtime-probe fallback (when the map is unavailable for a model)
+Generalize the existing route probe (`104001`→`104002` within 15 s; `ebo_bridge.py:184-188,999-1006,
+1683-1686`) into a **capability-discovery pass**. **Critical safety rule:**
+- **Safe to probe** = read-only *query* opcodes that ack with a reply and don't move the robot:
+  get-info `101004`, get-settings `101027`, get-routes `104001`, get-motion `101021`, list/query
+  ops. A reply → feature present; silence past a timeout → absent/unsupported.
+- **NOT safe to blind-probe** = *action* opcodes (any tagged "MOVES", dock `103043`, patrol `103061`,
+  roam `101061`, rotate `103001`): they physically move the robot or change state. Never enumerate
+  these automatically — gate them on 8.2 flags, or trigger only on explicit user action and observe
+  the result.
+
+### 8.4 Model differences to expect (hypotheses to verify)
+- **EBO Air 2** ✅ verified baseline: move, dock, telemetry, sleep, eyes, settings; **route/patrol
+  absent**.
+- **Air 2 Plus / Air 2S / Mini** 🟡 same cloud + opcode base as Air 2; core features work, some
+  model-specific commands differ (`DOCS.md`). Likely also no route.
+- **EBO X / EBO Max** ❓ premium models with more autonomy — **route/patrol and richer navigation may
+  actually be present here.** Highest-value models to get a capability map / live probe for.
+- **EBO SE** ⛔ out of scope for this matrix: it uses **LAN TUTK/Kalay**, *not* the Agora opcode
+  protocol at all (`DOCS.md`), so none of these opcodes apply. Track it separately.
+
+### 8.5 Deliverable: a data-driven capability table in the add-on
+Once 8.2 is known, the add-on should carry a **`productId → capabilities` table** and gate the whole
+UI generically off it (today only routes are gated, and only by a runtime probe). This replaces
+per-feature ad-hoc probing with one source of truth, and makes multi-model support declarative.
+
+---
+
+## 9. Capability matrix — template to fill in
+
+Rows = opcode/function; columns = model. Cells: ✅ present · ❌ absent · ❓ unknown · — N/A.
+Seed values are what we know today; the rest is the deep-dive's job (§8.2 first, §8.3 fallback).
+
+| Opcode | Function | Air 2 | Air2 Plus/2S/Mini | EBO X | EBO Max | SE (TUTK) |
+|---|---|---|---|---|---|---|
+| 101007 | move (joystick) | ✅ | 🟡 | ❓ | ❓ | — |
+| 101047 | sleep/wake | ✅ | 🟡 | ❓ | ❓ | — |
+| 101061 | auto roaming | ❓ | ❓ | ❓ | ❓ | — |
+| 103001 | rotate by angle | ❓ | ❓ | ❓ | ❓ | — |
+| 103003/103005 | routine / run move | ✅(run) | ❓ | ❓ | ❓ | — |
+| 103019 | auto-recharge setting | ❓ | ❓ | ❓ | ❓ | — |
+| 103043 | return to dock | ✅ | 🟡 | ❓ | ❓ | — |
+| 103049 | AI track | ✅ | ❓ | ❓ | ❓ | — |
+| 103061/103063 | patrol start/stop | ❌ | ❓ | ❓ | ❓ | — |
+| 103201/103205/103206 | route record | ❌ | ❓ | ❓ | ❓ | — |
+| 104001/104002 | list routes | ❌ | ❓ | ❓ | ❓ | — |
+| 104057 | eyes/emoji | ✅ | ❓ | ❓ | ❓ | — |
+| 102035 | day/night (shootMode) | ✅ | ❓ | ❓ | ❓ | — |
+
+> The full 112-row version should be generated by joining `COMMANDS-APK.md` with the `productId →
+> featureFlags` map from §8.2. That join **is** the definitive "which functions each robot exposes."
