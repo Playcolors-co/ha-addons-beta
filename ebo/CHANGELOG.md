@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.26.60 — reliable camera.ebo snapshots (fixes intermittent 500)
+- `camera.ebo` still images no longer depend on Home Assistant extracting a keyframe from the internal
+  RTSP itself — that default path returns **500** when it can't grab a frame in time (seen by tooling /
+  automations that pull the snapshot). The camera now fetches the JPEG from the **add-on's own reliable
+  snapshot endpoint** (the same one the panel previews use, grabbed from the local mediamtx), and falls
+  back to the stream grab if the add-on can't provide one. Live streaming (WebRTC/HLS) is unchanged.
+- NOTE: because this changes integration code, it takes effect after an **HA core restart**.
+
+
 ## 0.26.59 — slimmer, auto-dismissing HLS notice
 - The HLS "video is delayed" warning was a big multi-line box covering the view. It's now a **slim
   one-line pill** that **auto-fades after ~5 s** (the amber **HLS** badge stays as the persistent
