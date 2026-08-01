@@ -765,13 +765,25 @@ class Bridge:
                 self.stop.wait(8)
 
     def _wake(self):
-        """Wake the robot from standby (sends isSleeping=false, opcode 101047). Not movement —
-        mirrors the app, where opening the live camera wakes the robot."""
+        """Wake the robot. Two different sleeps exist:
+          * light standby (we left the channel, or it dozed while we watched) -> a fresh viewer join
+            brings it back, and isSleeping=false nudges it;
+          * DEEP sleep (it drove home to the dock and shows the ZZ eyes) -> it has left Agora
+            altogether, so no opcode of ours can reach it. Only a fresh CLOUD session does, which is
+            what _force_rejoin() now asks for.
+        So: try the opcode, and if no frames are flowing, do the full cloud-backed rejoin too."""
         try:
             self.send(OP_SLEEP, {"isSleeping": False})
             log("[wake] sent wake (isSleeping=false)")
         except Exception as e:
             log("[wake] failed:", e)
+        try:
+            if not self.connected:
+                self.set_connected(True)          # refreshes the cloud session on its own
+            elif not (self.video and self.video.is_streaming()):
+                self._force_rejoin()              # deep sleep: needs the fresh cloud session
+        except Exception as e:
+            log("[wake] rejoin after wake failed:", e)
 
     def set_camera(self, on):
         self.video_on = on
@@ -804,6 +816,17 @@ class Bridge:
         robot from standby. Mirrors the app reconnecting when you reopen it. connect_agora() restarts
         the video feed on its own because video_on is True."""
         log("[wake] robot not streaming — forcing a fresh RTC rejoin to wake it")
+        # DEEP sleep (the robot parked itself on the dock and shows the ZZ eyes) is different from
+        # the standby we trigger ourselves: the robot leaves Agora entirely and only keeps its link
+        # to Enabot's cloud. Re-joining the channel with our CACHED tokens then reaches nobody —
+        # which is why the robot could only be revived from the official app. The app asks the cloud
+        # for a FRESH session every time it opens a robot, and it's that cloud call which tells the
+        # robot to come back online. So do the same here before rejoining.
+        if self.provider:
+            try:
+                self.refresh_session()
+            except Exception as e:
+                log("[wake] session refresh failed (continuing):", e)
         try:
             if self.rtc:
                 try:
@@ -833,6 +856,14 @@ class Bridge:
         if on:
             self.connected = True
             log("[*] connecting session…")
+            # Ask the cloud for a FRESH session first (like the app does when you open a robot):
+            # that call is what brings a deeply-sleeping robot — one that parked on the dock and
+            # left Agora — back online. Reconnecting with cached tokens alone would not reach it.
+            if self.provider:
+                try:
+                    self.refresh_session()
+                except Exception as e:
+                    log("[*] session refresh failed (continuing):", e)
             try:
                 self.connect_agora()
                 self.send(OP_HANDSHAKE, {"userId": self.account})

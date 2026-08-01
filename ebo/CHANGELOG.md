@@ -1,5 +1,18 @@
 # Changelog — Enabot integration
 
+## 0.26.70 — wake the robot from DEEP sleep (the "parked on the dock, ZZ eyes" one)
+- There are **two different sleeps**, and we only handled one:
+  * **light standby** — we left the Agora channel (Standby button, or the robot dozed while we were
+    connected). A fresh viewer join wakes it. This already worked.
+  * **deep sleep** — the robot drives itself home, sits on the dock and shows the **ZZ eyes**. It then
+    **leaves Agora entirely** and keeps only its link to Enabot's cloud. Re-joining the channel with
+    our **cached** tokens reached nobody, so the robot could only be revived from the official app.
+- **Fix:** the wake paths now ask the cloud for a **fresh session first** (exactly what the app does
+  every time you open a robot) and then rejoin — that cloud call is what tells a deeply-sleeping robot
+  to come back online. Applies to `set_connected(on)`, the forced rejoin, and the `wake` command,
+  which now also performs the full rejoin instead of only sending `isSleeping=false`.
+
+
 ## 0.26.69 — the key-extraction steps are now IN the add-on documentation
 - 0.26.68 added the guide as a separate file, but Home Assistant's **Documentation** tab can't follow
   relative links — so it was effectively invisible from inside HA. The **full procedure is now written
