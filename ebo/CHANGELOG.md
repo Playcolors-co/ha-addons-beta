@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.26.85 — THE reason you could not hear the robot: WebRTC can't carry AAC
+- The stream did contain the microphone audio, but it was encoded as **AAC** — and **WebRTC does not
+  support AAC** (only Opus, G.711 and G.722). So in the drive view the browser was handed a
+  video-only stream: there was literally nothing to unmute.
+- The audio is now encoded as **Opus** (48 kHz mono, VoIP mode), which WebRTC carries natively and
+  mediamtx's fMP4 HLS also supports. Combined with 0.26.81 (opening the robot mic) and 0.26.84 (the
+  speaker button unmuting the player), listening now works end to end.
+
+
 ## 0.26.84 — you can now actually HEAR the robot in the drive view
 - The microphone audio was reaching Home Assistant, but the fullscreen player is created **muted** —
   browsers only allow autoplay when a video starts muted, and nothing ever unmuted it. So there was

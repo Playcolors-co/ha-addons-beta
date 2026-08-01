@@ -149,7 +149,12 @@ class VideoPipeline(IVideoFrameObserver):
             os.set_inheritable(a_r, True)
             audio_in = ["-thread_queue_size", "1024", "-f", "s16le",
                         "-ar", str(self.audio_rate), "-ac", "1", "-i", "pipe:%d" % a_r]
-            audio_out = ["-c:a", "aac", "-b:a", "48k"]
+            # Opus, NOT AAC. WebRTC only carries Opus / G.711 / G.722 — with AAC the browser gets
+            # no audio track at all in the drive view (the stream had sound, WebRTC just dropped it).
+            # Opus also works in mediamtx's fMP4 HLS. 48 kHz mono, low bitrate: the source is an
+            # 8 kHz telephony mic, so there is nothing to gain from more.
+            audio_out = ["-c:a", "libopus", "-ar", "48000", "-ac", "1",
+                         "-b:a", "24k", "-application", "voip"]
             pass_fds = (a_r,)
         _nullout = os.environ.get("EBO_VIDEO_NULLOUT") == "1"   # DIAG: encode to null (isolate mediamtx)
         self.ff = subprocess.Popen([
