@@ -1,5 +1,18 @@
 # Changelog — Enabot integration
 
+## 0.26.63 — fix BLACK screen on the remote HLS fallback (regression from 0.26.62)
+- 0.26.62 started always *trying* WebRTC first (so LAN users on a domain URL get the fluid video). But
+  a failed WebRTC attempt leaves a dead MediaStream on the `<video>` element (`pc.ontrack` sets
+  `srcObject`), and **`srcObject` takes precedence over the HLS/MSE source** — so the HLS fallback
+  attached correctly but rendered a **black screen** over cellular. The player now always detaches the
+  peer connection and clears `srcObject` before starting HLS.
+- Off-LAN also switches to **plain HLS instead of Low-Latency HLS**: LL-HLS relies on blocking playlist
+  reloads and chunked "parts" that reverse proxies/CDNs (Cloudflare tunnel, Nabu Casa) tend to buffer or
+  break. Slightly more delay, but it actually plays.
+- HLS failures are now **reported on screen** (with the reason) after a few recovery attempts, instead
+  of silently looping on a black video. Recovery uses hls.js's own network/media recovery first.
+
+
 ## 0.26.62 — fluid video also when you open HA by domain name on your own LAN
 - **Fixed:** the panel decided "you're remote" from the **URL alone**, so opening Home Assistant through
   a domain (Cloudflare / Nabu Casa / reverse proxy) forced the slower **HLS even while you were on the

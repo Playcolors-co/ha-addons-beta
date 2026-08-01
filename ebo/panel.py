@@ -1085,16 +1085,50 @@ function _waitConn(pc, ms){
       else if(pc.connectionState==='failed'){clearTimeout(t);res('failed');} });
   });
 }
-function hlsPlay(node){
+function hlsPlay(node, attempt){
   const v=document.getElementById('fsvid'); const src=hlsSrc(node);
   if(!src) return;
+  attempt=attempt||0;
+  const open=()=>document.getElementById('fs').style.display==='block';
+  // CRITICAL: a previous WebRTC attempt may have left a (dead) MediaStream on the element via
+  // pc.ontrack. srcObject takes PRECEDENCE over MSE/src, so HLS would attach and show a BLACK
+  // screen. Always detach the peer connection and clear srcObject before playing HLS.
+  if(v._pc){ try{v._pc.close();}catch(e){} v._pc=null; }
+  if(v._statTimer){ clearInterval(v._statTimer); v._statTimer=null; }
+  if(v._hls){ try{v._hls.destroy();}catch(e){} v._hls=null; }
+  try{ v.srcObject=null; }catch(e){}
   if(window.Hls && Hls.isSupported()){
-    const hls=new Hls({lowLatencyMode:true, backBufferLength:4});
-    hls.on(Hls.Events.ERROR,(e,d)=>{ if(d.fatal){ try{hls.destroy();}catch(x){} setTimeout(()=>{ if(document.getElementById('fs').style.display==='block') hlsPlay(node); },1500); }});
-    hls.loadSource(src); hls.attachMedia(v); v._hls=hls;
+    // Low-Latency HLS uses blocking playlist reloads + chunked "parts". Those go through a LAN
+    // connection fine, but reverse proxies/CDNs (Cloudflare tunnel, Nabu Casa…) often buffer or
+    // break them — which shows up as a BLACK screen from cellular. So off-LAN we use plain HLS
+    // (ordinary segment GETs): a bit more delay, but it actually plays.
+    const ll = !isLikelyRemote();
+    const hls=new Hls({lowLatencyMode:ll, backBufferLength:4});
+    v._hls=hls;
+    hls.on(Hls.Events.ERROR,(e,d)=>{
+      if(!d.fatal) return;
+      // Try the built-in recoveries first (they keep the same session), then re-create, and finally
+      // TELL THE USER instead of looping on a black screen forever.
+      if(d.type===Hls.ErrorTypes.NETWORK_ERROR && attempt<3){
+        try{ hls.startLoad(); return; }catch(x){}
+      }
+      if(d.type===Hls.ErrorTypes.MEDIA_ERROR && attempt<3){
+        try{ hls.recoverMediaError(); return; }catch(x){}
+      }
+      try{hls.destroy();}catch(x){}
+      if(!open()) return;
+      if(attempt<3){ setTimeout(()=>{ if(open()) hlsPlay(node, attempt+1); }, 1500); }
+      else { _fsStatus('Video unavailable over this connection ('+(d.details||d.type)+
+                       '). Try again, or use the LAN/VPN for the fluid stream.'); }
+    });
+    hls.on(Hls.Events.MANIFEST_PARSED,()=>{ v.play().catch(()=>{}); });
+    hls.loadSource(src); hls.attachMedia(v);
     v.play().catch(()=>{});
   } else if(v.canPlayType('application/vnd.apple.mpegurl')){
-    v.src=src; v.play().catch(()=>{});
+    // Safari / iOS webview: native HLS.
+    v.src=src;
+    v.addEventListener('error',()=>{ if(open()) _fsStatus('Video unavailable over this connection.'); },{once:true});
+    v.play().catch(()=>{});
   }
 }
 // Play the fluid WebRTC. The stream appears only a few seconds AFTER camera/set on (the robot has to
@@ -1138,7 +1172,13 @@ async function fsPlay(node){
     if(++iceFails>=maxIceFails) break;   // answer OK but ICE won't connect → network issue → HLS
     await new Promise(r=>setTimeout(r,600));
   }
-  if(open()){ _fsStatus(null); _fsBadge('HLS · fallback', 'hls'); console.log('[ebo] WHEP unavailable → HLS fallback'); hlsPlay(node); }
+  if(open()){
+    _fsBadge(maybeRemote?'HLS · remote':'HLS · fallback', 'hls');
+    console.log('[ebo] WebRTC unavailable → HLS');
+    _fsStatus('Starting video…');                       // cleared when it actually plays
+    v.addEventListener('playing',()=>{ if(open()) _fsStatus(null); },{once:true});
+    hlsPlay(node);
+  }
 }
 let _driveVQ=null;   // video quality saved on entering drive, restored on exit
 function enterFS(node){
