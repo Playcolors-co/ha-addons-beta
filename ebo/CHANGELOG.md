@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.26.83 — fix: raw HTML appearing in the robot list
+- After a few seconds the robot list showed the battery/Wi-Fi gauges as **raw markup** instead of the
+  little bar icons. The periodic refresh was still writing that line as plain *text*, while 0.26.77
+  changed it to return HTML. It now updates it as markup, so the gauges keep rendering.
+
+
 ## 0.26.82 — a Listen switch you can actually press
 - 0.26.81 opened the robot's microphone automatically, but there was **no control for it**. Now there is:
   - **Robot page → Audio → "Listen — hear the robot\'s microphone"** toggle;

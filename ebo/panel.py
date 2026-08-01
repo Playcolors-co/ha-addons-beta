@@ -1524,7 +1524,7 @@ function updateValues(){
   }else{
     ROBOTS.forEach(r=>{
       const dot=document.getElementById('dot-'+r.node); if(dot) dot.className='dot '+(r.online?'on':'');
-      const m=document.getElementById('meta-'+r.node); if(m) m.textContent=meta(r);
+      const m=document.getElementById('meta-'+r.node); if(m) m.innerHTML=meta(r);   // meta() returns markup (battery/wifi gauges)
     });
   }
 }
