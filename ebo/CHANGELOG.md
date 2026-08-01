@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.26.69 — the key-extraction steps are now IN the add-on documentation
+- 0.26.68 added the guide as a separate file, but Home Assistant's **Documentation** tab can't follow
+  relative links — so it was effectively invisible from inside HA. The **full procedure is now written
+  directly in DOCS.md** (get the APK → open with jadx → read the two constants in
+  `ServerEncryptHelper` → paste), with clickable download links, plus an absolute link to the longer
+  version on GitHub.
+
+
 ## 0.26.68 — guide for getting the two app keys
 - Added **[docs/GET-APP-KEYS.md](docs/GET-APP-KEYS.md)**: a step-by-step guide (with download links) to
   read `payload_key` / `sign_key` from **your own copy** of the EBO HOME app — get the APK off your
