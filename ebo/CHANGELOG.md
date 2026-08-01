@@ -1,5 +1,16 @@
 # Changelog — Enabot integration
 
+## 0.26.77 — readable battery / Wi-Fi gauges, and clearer feedback when sending the robot to sleep
+- **Battery and signal are now little bar gauges** instead of an emoji and a raw number: the battery
+  is a 4-segment gauge that turns amber below 50% and red below 20%, with a **⚡ bolt while charging**;
+  Wi-Fi is 4 bars (a bare "-64 dBm" meant nothing). Hovering still shows the exact value. Used in the
+  robot list, the robot page and the fullscreen bar.
+- **Sleep now gives immediate feedback.** The add-on can only *stop watching* the robot — the robot
+  itself then closes its eyes after a few seconds to a couple of minutes (same as closing the official
+  app), so the button used to look like it did nothing. It now dims the picture at once, says
+  "Going to sleep…" and shows a short message explaining the delay. Waking shows a message too.
+
+
 ## 0.26.76 — looking at a robot no longer wakes it, and you can send it to sleep with one tap
 - **Fixed: opening a robot woke it up by itself.** The panel sent `camera/set on` as soon as you opened
   the robot page, so it could never stay asleep while you just checked on it — and the new "tap to

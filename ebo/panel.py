@@ -616,7 +616,28 @@ input[type=range]{width:100%}
   background:rgba(20,24,28,.72);backdrop-filter:blur(4px);font-size:12px;padding:5px 10px;border-radius:10px}
 .sleepbtn:active{transform:scale(.95)}
 .sleepbtn.busy{opacity:.6;pointer-events:none}
+/* battery + wifi as little bar gauges — a raw "-64" means nothing to most people */
+.ind{display:inline-flex;align-items:center;gap:4px;vertical-align:-2px}
+.bat{position:relative;width:26px;height:13px;border:1.5px solid currentColor;border-radius:3px;
+  display:inline-flex;gap:1px;padding:1.5px;box-sizing:border-box}
+.bat::after{content:"";position:absolute;right:-4px;top:3.5px;width:2.5px;height:5px;
+  background:currentColor;border-radius:0 2px 2px 0}
+.bat i{flex:1;background:currentColor;opacity:.2;border-radius:1px}
+.bat i.on{opacity:1}
+.bat.ok{color:#2ea36a}.bat.warn{color:#d68a00}.bat.low{color:#c0392b}.bat.none{color:#8a929a}
+.bat .bolt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:10px;line-height:1;color:#fff;text-shadow:0 0 3px #000,0 0 2px #000}
+.sig{display:inline-flex;align-items:flex-end;gap:2px;height:13px}
+.sig i{width:3px;background:currentColor;opacity:.2;border-radius:1px}
+.sig i.on{opacity:1}
+.sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:7px}
+.sig i:nth-child(3){height:10px}.sig i:nth-child(4){height:13px}
+.sig.good{color:#2ea36a}.sig.fair{color:#d68a00}.sig.weak{color:#c0392b}.sig.none{color:#8a929a}
 .thumbwrap{position:relative}
+#toast{position:fixed;left:50%;bottom:18px;transform:translate(-50%,20px);z-index:60;opacity:0;
+  background:rgba(20,24,28,.92);color:#fff;font-size:13px;padding:9px 14px;border-radius:12px;
+  pointer-events:none;transition:opacity .25s,transform .25s;max-width:90%;text-align:center}
+#toast.show{opacity:1;transform:translate(-50%,0)}
 .zzbadge{position:absolute;top:6px;right:6px;background:#0009;color:#cfe;font-size:11px;
   padding:2px 6px;border-radius:8px;pointer-events:none}
 .warn{background:#e67e22;color:#fff;border-radius:10px;padding:9px 12px;font-size:13px;margin:10px 0;font-weight:600}
@@ -748,9 +769,34 @@ async function cmd(node,suffix,payload){
 }
 function esc(s){return (s==null?'':(''+s))}
 function opt(list,cur){return list.map(v=>`<option ${v==cur?'selected':''}>${v}</option>`).join('')}
+// Battery as a 4-segment gauge (green/amber/red), with a bolt while charging.
+function batHtml(pct, charging){
+  const p = (pct==null||pct==='') ? null : Math.max(0, Math.min(100, +pct));
+  const n = (p==null) ? 0 : Math.max(1, Math.ceil(p/25));
+  const cls = (p==null) ? 'none' : (p<=20 ? 'low' : (p<=50 ? 'warn' : 'ok'));
+  let bars=''; for(let i=1;i<=4;i++) bars += '<i class="'+(i<=n?'on':'')+'"></i>';
+  const on = (charging===true || charging==='true');
+  return '<span class="ind" title="Battery '+(p==null?'unknown':p+'%')+(on?' · charging':'')+'">'
+       + '<span class="bat '+cls+'">'+bars+(on?'<span class="bolt">⚡</span>':'')+'</span>'
+       + '<span>'+(p==null?'—':p+'%')+'</span></span>';
+}
+// Wi-Fi as 4 bars. The robot reports dBm (e.g. -64); some report 0-100 instead — handle both.
+function sigHtml(v){
+  const raw = (v==null||v==='') ? null : +v;
+  let n=0, label='unknown';
+  if(raw!=null && !isNaN(raw)){
+    if(raw>0){ n = Math.max(1, Math.ceil(raw/25)); }                       // percentage
+    else { n = raw>=-55?4 : raw>=-65?3 : raw>=-75?2 : 1; }                 // dBm
+    label = ['weak','fair','good','excellent'][n-1] || 'unknown';
+  }
+  const cls = n===0?'none' : (n>=3?'good' : (n===2?'fair':'weak'));
+  let bars=''; for(let i=1;i<=4;i++) bars += '<i class="'+(i<=n?'on':'')+'"></i>';
+  return '<span class="ind" title="Wi-Fi: '+label+(raw!=null?' ('+raw+(raw>0?'%':' dBm')+')':'')+'">'
+       + '<span class="sig '+cls+'">'+bars+'</span></span>';
+}
 function meta(r){const st=r.state||{};
-  const bat=(st.battery!=null)?st.battery+'%':'—', wifi=(st.wifi!=null?st.wifi:(st.rssi!=null?st.rssi:'—'));
-  return `${r.model||'EBO'} · 🔋 ${bat} · 📶 ${wifi}`;}
+  const wifi=(st.wifi!=null?st.wifi:(st.rssi!=null?st.rssi:null));
+  return `${r.model||'EBO'} · ${batHtml(st.battery, st.charging)} · ${sigHtml(wifi)}`;}
 function thumb(n){return `${B}/api/snapshot?node=${encodeURIComponent(n)}&t=${Math.floor(Date.now()/4000)}`}
 function bg(node,suffix,payload){ fetch(B+'/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node,suffix,payload})}).catch(()=>{}); }
 // Laser is a TOGGLE: the robot reports its state (state.laser), so read it at click time and send
@@ -813,15 +859,29 @@ function routesHtml(r){
 // camera/set on is the reliable wake: it re-joins the robot's session with a fresh cloud session.
 async function wakeRobot(node, btn){
   if(btn){ btn.classList.add('busy'); const t=btn.querySelector('.tx'); if(t) t.textContent='Waking…'; }
+  toast('Waking the robot — this takes a few seconds');
   await cmd(node,'camera/set','on');
   setTimeout(refresh, 2500);      // the robot needs a moment to come back and start streaming
 }
 // Put the robot to sleep on demand (ZZ): leaving the session is exactly what makes it doze off,
 // same as closing the official app.
 async function sleepRobot(node, btn){
-  if(btn){ btn.classList.add('busy'); btn.textContent='Sleeping…'; }
+  // We can only STOP WATCHING (leave the robot's session) — the robot itself then decides to doze
+  // off, which takes a few seconds to a couple of minutes, exactly like closing the official app.
+  // So give immediate feedback (dim the picture, say what's happening) instead of looking broken.
+  const wrap=document.querySelector('.bigwrap');
+  if(wrap) wrap.classList.add('asleep');
+  if(btn){ btn.classList.add('busy'); btn.textContent='😴 Going to sleep…'; }
+  toast('Sleep requested — the robot closes its eyes in a moment');
   await cmd(node,'connected/set','off');
-  setTimeout(refresh, 1500);
+  setTimeout(refresh, 2500);
+}
+// small transient message at the bottom of the panel
+function toast(msg){
+  let t=document.getElementById('toast');
+  if(!t){ t=document.createElement('div'); t.id='toast'; document.body.appendChild(t); }
+  t.textContent=msg; t.className='show';
+  clearTimeout(t._h); t._h=setTimeout(()=>{ t.className=''; }, 4000);
 }
 function replayRoute(node,name){ cmd(node,'patrol/route/set',name); setTimeout(()=>cmd(node,'patrol/start',''),350); }
 function delRoute(node,id){ if(confirm('Delete this route?')){ cmd(node,'route/delete',''+id); } }
@@ -949,8 +1009,8 @@ function fsTop(node){
   return `<div class="fs-info">
       <button class="fs-ic" onclick="exitFS()" title="Back" style="width:40px;height:40px;font-size:24px">‹</button>
       <span class="b" id="fs-badge2">···</span>
-      <span class="b" id="fs-bat">🔋 ${st.battery??'—'}%</span>
-      <span class="b" id="fs-wifi">📶 ${st.wifi??'—'}</span>
+      <span class="b" id="fs-bat">${batHtml(st.battery, st.charging)}</span>
+      <span class="b" id="fs-wifi">${sigHtml(st.wifi)}</span>
     </div>
     <div class="fs-actions">
       <button class="fs-ic ${laserOn?'on':''}" id="fs-laser" onclick="toggleLaser('${node}')" title="Laser">•</button>
@@ -1346,7 +1406,7 @@ function detailView(r){
     </div>
     ${charging? '<div class="warn">🔌 On the charger — take the robot off the base to drive it.</div>':''}
     <div class="dname"><span id="d-dot" class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
-    <div id="d-meta" class="dmeta">${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}</div>
+    <div id="d-meta" class="dmeta">${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · ${batHtml(st.battery, st.charging)} · ${sigHtml(st.wifi)}</div>
     <div id="d-conn" class="${connHintClass()}">${connHint()}</div>
     <div class="row">
       <button id="d-cam" class="btn ${cam?'pri':''}" onclick="cmd('${r.node}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
@@ -1417,15 +1477,15 @@ function updateValues(){
     const r=ROBOTS.find(x=>x.node===SEL); if(!r) return;
     const st=r.state||{}, cam=(r.camera==='on');
     const dot=document.getElementById('d-dot'); if(dot) dot.className='dot '+(r.online?'on':'');
-    const m=document.getElementById('d-meta'); if(m) m.textContent=`${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · 🔋 ${st.battery??'—'}% · 📶 ${st.wifi??'—'}`;
+    const m=document.getElementById('d-meta'); if(m) m.innerHTML=`${r.model||'EBO'} · SN ${esc(r.sn)||'—'} · ${batHtml(st.battery, st.charging)} · ${sigHtml(st.wifi)}`;
     const cb=document.getElementById('d-cam'); if(cb){ cb.className='btn '+(cam?'pri':''); cb.textContent=cam?'Camera ON':'Camera OFF'; cb.setAttribute('onclick',`cmd('${r.node}','camera/set','${cam?'off':'on'}')`); }
     updateLaserUI(SEL);                                    // keep the laser toggle (detail + fullscreen) in sync
     updateNightUI(SEL);                                    // keep the day/night button icon in sync
     updateRecUI(SEL);                                      // keep the route-record button in sync
     const rc=document.getElementById('d-routes'); if(rc) rc.innerHTML=routesHtml(r);   // live routes list
     if(document.getElementById('fs').style.display==='block'){   // fullscreen open: refresh its top-bar info
-      const fb=document.getElementById('fs-bat'); if(fb) fb.textContent='🔋 '+(st.battery??'—')+'%';
-      const fw=document.getElementById('fs-wifi'); if(fw) fw.textContent='📶 '+(st.wifi??'—');
+      const fb=document.getElementById('fs-bat'); if(fb) fb.innerHTML=batHtml(st.battery, st.charging);
+      const fw=document.getElementById('fs-wifi'); if(fw) fw.innerHTML=sigHtml(st.wifi);
     }
   }else{
     ROBOTS.forEach(r=>{
