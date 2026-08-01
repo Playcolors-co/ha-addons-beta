@@ -147,14 +147,28 @@ class VideoPipeline(IVideoFrameObserver):
         if self.audio:
             a_r, self._a_w = os.pipe()
             os.set_inheritable(a_r, True)
-            audio_in = ["-thread_queue_size", "1024", "-f", "s16le",
+            # A default pipe holds 64 KB = ~4 s of 8 kHz mono PCM. That reservoir is exactly how the
+            # audio ended up seconds behind the video. Shrink it so a backlog simply can't build:
+            # when it's full we drop the newest chunk (see write_audio) and stay near real time.
+            try:
+                import fcntl
+                fcntl.fcntl(self._a_w, 1031, 8192)      # F_SETPIPE_SZ = 1031, 8 KB ~= 0.5 s
+            except Exception:
+                pass
+            # Small queue + no buffering: the video path already drops stale frames to bound
+            # latency; audio had no such control, so it queued up and arrived seconds late.
+            audio_in = ["-thread_queue_size", "64",
+                        "-fflags", "+nobuffer", "-flags", "+low_delay",
+                        "-f", "s16le",
                         "-ar", str(self.audio_rate), "-ac", "1", "-i", "pipe:%d" % a_r]
             # Opus, NOT AAC. WebRTC only carries Opus / G.711 / G.722 — with AAC the browser gets
             # no audio track at all in the drive view (the stream had sound, WebRTC just dropped it).
             # Opus also works in mediamtx's fMP4 HLS. 48 kHz mono, low bitrate: the source is an
             # 8 kHz telephony mic, so there is nothing to gain from more.
-            audio_out = ["-c:a", "libopus", "-ar", "48000", "-ac", "1",
-                         "-b:a", "24k", "-application", "voip"]
+            audio_out = ["-af", "aresample=async=1:first_pts=0",
+                         "-c:a", "libopus", "-ar", "48000", "-ac", "1",
+                         "-b:a", "24k", "-application", "lowdelay",
+                         "-frame_duration", "10"]
             pass_fds = (a_r,)
         _nullout = os.environ.get("EBO_VIDEO_NULLOUT") == "1"   # DIAG: encode to null (isolate mediamtx)
         self.ff = subprocess.Popen([

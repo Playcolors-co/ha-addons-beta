@@ -1,5 +1,17 @@
 # Changelog — Enabot integration
 
+## 0.26.86 — the robot's audio is no longer seconds behind
+- Now that you can hear the microphone, it arrived **badly delayed**. The video path drops stale frames
+  to bound latency; the audio path had **no such control** and simply queued up:
+  - the pipe feeding ffmpeg is a default **64 KB** buffer — at 8 kHz mono that is **~4 seconds** of
+    audio sitting in a queue. It is now **8 KB (~0.5 s)**, so a backlog cannot build: when it is full
+    the newest chunk is dropped and playback stays near real time;
+  - the audio input used a 1024-packet queue and no low-latency flags → now **64** with
+    `nobuffer`/`low_delay`, like the video input;
+  - Opus now encodes in **lowdelay** mode with **10 ms** frames, and `aresample=async=1` keeps the
+    audio glued to the timeline instead of drifting further behind.
+
+
 ## 0.26.85 — THE reason you could not hear the robot: WebRTC can't carry AAC
 - The stream did contain the microphone audio, but it was encoded as **AAC** — and **WebRTC does not
   support AAC** (only Opus, G.711 and G.722). So in the drive view the browser was handed a
