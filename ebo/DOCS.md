@@ -35,10 +35,16 @@ provide them yourself in the configuration:
 - **`sign_key`** — the HMAC key for the request signature (`x-ebo-sign`).
 - **`payload_key`** — the AES-128-GCM key for the login payload.
 
-They are the same for everyone (app-level constants, not per-user secrets). A technically-inclined
-user can read them from **their own copy of the EBO HOME app** (decompile the APK, or hook
-`javax.crypto.Mac` / the AES cipher with Frida). Without them the add-on stops with a clear
-message. This project does not distribute them.
+They are the same for everyone (app-level constants, not per-user secrets), and you read them from
+**your own copy of the EBO HOME app**. Without them the add-on stops with a clear message.
+
+➡️ **Step-by-step guide (with download links): [docs/GET-APP-KEYS.md](docs/GET-APP-KEYS.md)** — pull the
+APK off your phone, open it with jadx, read the two constants, paste them here. Takes ~10 minutes, once.
+
+Why we don't just bundle them (even encrypted): whatever decrypts them would have to ship with the
+add-on too, so it would protect nothing — and it would mean redistributing someone else's secrets.
+Keeping them user-supplied is both safer and legally cleaner: you use your own app's keys, for your
+own robot. Please don't post the keys publicly.
 
 ## Configuration (only 4 fields)
 

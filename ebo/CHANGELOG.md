@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.26.68 — guide for getting the two app keys
+- Added **[docs/GET-APP-KEYS.md](docs/GET-APP-KEYS.md)**: a step-by-step guide (with download links) to
+  read `payload_key` / `sign_key` from **your own copy** of the EBO HOME app — get the APK off your
+  phone, open it with jadx, read the two constants in `ServerEncryptHelper`, paste them into the
+  Configuration tab. Linked from the README and DOCS.
+- Documented **why the keys aren't bundled** (even encrypted): whatever decrypts them would have to
+  ship too, so it would protect nothing — and it would mean redistributing someone else's secrets.
+  User-supplied keys are safer and cleaner: your own app's keys, for your own robot.
+
+
 ## 0.26.67 — drop the deprecated build.yaml (Supervisor housekeeping)
 - The Supervisor now warns that **`build.yaml` is deprecated** ("move build parameters into the
   Dockerfile"). Removed it: the base image and the image labels are declared **in the Dockerfile**.
