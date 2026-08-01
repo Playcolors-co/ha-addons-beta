@@ -571,12 +571,16 @@ input[type=range]{width:100%}
 .fs-info .b.rtc{background:rgba(18,184,134,.55);color:#eafff5}
 .fs-info .b.hls{background:rgba(214,138,0,.6);color:#fff5e0}
 /* tiny level meters so you can SEE that audio is flowing, both ways */
-.vu{display:none;width:46px;height:7px;background:#0007;border-radius:4px;overflow:hidden;
-  backdrop-filter:blur(3px);vertical-align:middle}
-.vu.on{display:inline-block}
-.vu i{display:block;height:100%;width:0%;border-radius:4px;transition:width .07s linear}
-.vu.spk i{background:#2ee6a8}
-.vu.mic i{background:#59a7ff}
+.vu{display:none;align-items:center;gap:5px;background:#0007;border-radius:9px;padding:3px 7px;
+  backdrop-filter:blur(3px);vertical-align:middle;font-size:11px;line-height:1}
+.vu.on{display:inline-flex}
+.vu .bar{position:relative;width:64px;height:10px;background:#ffffff26;border-radius:5px;overflow:hidden}
+.vu .bar i{position:absolute;left:0;top:0;bottom:0;width:0%;border-radius:5px;
+  transition:width .06s linear}
+.vu .pk{position:absolute;top:0;bottom:0;width:2px;background:#fff;opacity:.85;left:0;
+  transition:left .12s linear}
+.vu.spk .bar i{background:linear-gradient(90deg,#12b886,#2ee6a8);box-shadow:0 0 6px #2ee6a880}
+.vu.mic .bar i{background:linear-gradient(90deg,#2b6cff,#59a7ff);box-shadow:0 0 6px #59a7ff80}
 .fs-hlswarn{position:absolute;top:50px;left:50%;transform:translateX(-50%);z-index:3;max-width:calc(100% - 24px);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   background:rgba(176,90,0,.85);color:#fff;font-size:11px;padding:3px 12px;border-radius:12px;
@@ -971,13 +975,24 @@ function _analyser(node){
 }
 function _level(an){
   if(!an) return 0;
-  const buf=new Uint8Array(an.frequencyBinCount); an.getByteTimeDomainData(buf);
-  let peak=0; for(let i=0;i<buf.length;i++){ const d=Math.abs(buf[i]-128); if(d>peak) peak=d; }
-  return Math.min(1, peak/70);                     // 70 ≈ speech peak, keeps the bar lively
+  const buf=new Uint8Array(an.fftSize); an.getByteTimeDomainData(buf);
+  let sum=0; for(let i=0;i<buf.length;i++){ const d=(buf[i]-128)/128; sum+=d*d; }
+  const rms=Math.sqrt(sum/buf.length);
+  // Perceptual: quiet speech is a very small RMS, so take a root and add gain — otherwise the bar
+  // barely twitches even when the audio is perfectly audible.
+  return Math.max(0, Math.min(1, Math.pow(rms, 0.45) * 2.2));
 }
+const _pk={};      // per-meter peak hold, decays slowly so short peaks stay visible
 function _vuTick(){
-  const set=(id,v)=>{ const e=document.getElementById(id); if(e){ const b=e.querySelector('i');
-    if(b) b.style.width=Math.round(v*100)+'%'; } };
+  const set=(id,v)=>{
+    const e=document.getElementById(id); if(!e) return;
+    const b=e.querySelector('.bar i'), p=e.querySelector('.pk');
+    if(b) b.style.width=Math.round(v*100)+'%';
+    const prev=_pk[id]||0;
+    const peak=Math.max(v, prev-0.012);          // hold, then fall back gently
+    _pk[id]=peak;
+    if(p) p.style.left=Math.max(0, Math.round(peak*100)-2)+'%';
+  };
   set('vu-mic', _level(_micAn));
   set('vu-spk', _level(_spkAn));
   _vuRaf=requestAnimationFrame(_vuTick);
@@ -988,8 +1003,8 @@ function startMicMeter(stream){
   const ac=_audioCtx(); if(!ac) return;
   try{ _micAn=_analyser(ac.createMediaStreamSource(stream)); _vuStart(); }catch(e){}
 }
-function stopMicMeter(){ _micAn=null; const m=document.getElementById('vu-mic');
-  if(m){ m.className='vu mic'; const b=m.querySelector('i'); if(b) b.style.width='0%'; } _vuStopIfIdle(); }
+function stopMicMeter(){ _micAn=null; _pk['vu-mic']=0; const m=document.getElementById('vu-mic');
+  if(m){ m.className='vu mic'; const b=m.querySelector('.bar i'); if(b) b.style.width='0%'; } _vuStopIfIdle(); }
 function startSpeakerMeter(){
   const v=document.getElementById('fsvid'); const ac=_audioCtx(); if(!v||!ac) return;
   try{
@@ -1006,8 +1021,8 @@ function startSpeakerMeter(){
     _vuStart();
   }catch(e){}
 }
-function stopSpeakerMeter(){ _spkAn=null; const e=document.getElementById('vu-spk');
-  if(e){ e.className='vu spk'; const b=e.querySelector('i'); if(b) b.style.width='0%'; } _vuStopIfIdle(); }
+function stopSpeakerMeter(){ _spkAn=null; _pk['vu-spk']=0; const e=document.getElementById('vu-spk');
+  if(e){ e.className='vu spk'; const b=e.querySelector('.bar i'); if(b) b.style.width='0%'; } _vuStopIfIdle(); }
 // Put the robot to sleep on demand (ZZ): leaving the session is exactly what makes it doze off,
 // same as closing the official app.
 async function sleepRobot(node, btn){
@@ -1156,8 +1171,8 @@ function fsTop(node){
       <span class="b" id="fs-badge2">···</span>
       <span class="b" id="fs-bat">${batHtml(st.battery, st.charging)}</span>
       <span class="b" id="fs-wifi">${sigHtml(st.wifi)}</span>
-      <span class="vu spk" id="vu-spk" title="Robot audio (what you hear)"><i></i></span>
-      <span class="vu mic" id="vu-mic" title="Your microphone (what the robot hears)"><i></i></span>
+      <span class="vu spk" id="vu-spk" title="Robot audio (what you hear)">🔊<span class="bar"><i></i><span class="pk"></span></span></span>
+      <span class="vu mic" id="vu-mic" title="Your microphone (what the robot hears)">🎤<span class="bar"><i></i><span class="pk"></span></span></span>
     </div>
     <div class="fs-actions">
       <button class="fs-ic ${laserOn?'on':''}" id="fs-laser" onclick="toggleLaser('${node}')" title="Laser">•</button>

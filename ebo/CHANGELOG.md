@@ -1,5 +1,12 @@
 # Changelog — Enabot integration
 
+## 0.26.90 — the audio level meters are actually readable now
+- The two meters were tiny and barely moved. They are now **bigger and brighter** (labelled 🔊 and 🎤,
+  with a visible track and a glow), and the level is computed **perceptually** (RMS with gain) instead
+  of raw peak — so normal speech clearly moves the bar. Each meter also has a **peak marker** that
+  holds briefly and falls back, so short sounds don't flash by unnoticed.
+
+
 ## 0.26.89 — fix the WHIP (talk) proxy path
 - The new microphone path was routed with the wrong prefix internally, so the request died before it
   reached mediamtx and talk could never start. Fixed.
