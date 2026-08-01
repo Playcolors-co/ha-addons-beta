@@ -84,6 +84,14 @@ OP_SPORTS_REC = 101049  # motion recording: {"sportsRecord": bool}
 OP_CALL_REC = 103071    # auto-record calls: {"callAutoRecording": int 0/1}
 OP_UPLOAD_CLOUD = 104099  # upload recordings to cloud: {"videoUploadCloud": bool}
 OP_TALKBACK_VOL = 102031  # {"talkbackVolume": int 0..100}
+# THE missing piece for two-way audio. Subscribing to the robot's audio track is not enough: the
+# robot only STARTS PUBLISHING its microphone when it is told to open that direction, with
+# {"type":1,"open":1}. Verified live: sending 102001 made the mic come up within a second
+# (bitrate ~73 kbps, 8 kHz mono), and open:0 stopped it (bitrate 0, loss 100). In the app these sit
+# right next to the local mute calls: 102001 pairs with muteRemoteAudio(uid) → LISTEN, 102003 pairs
+# with the local-mic mute → TALK.
+OP_AUDIO_LISTEN = 102001  # {"type":1,"open":0|1} — robot mic -> us
+OP_AUDIO_TALK = 102003    # {"type":1,"open":0|1} — us -> robot speaker
 OP_MOVE_MODE = 103011   # {"moveMode": int}
 OP_NIGHT_MODE = 102035  # {"shootMode": int} — the Air 2's day/night vision mode (0 Auto, 1 Day, 2 Night)
 OP_SHOOT_MODE = OP_NIGHT_MODE  # legacy alias
@@ -279,6 +287,13 @@ class Bridge:
                                 % (tagnote, uid, r1, r2))
                         except Exception as e:
                             log("[audio] subscribe failed:", e)
+                    # Tell the robot to actually PUBLISH its mic (subscribing alone gets you a
+                    # subscribed-but-silent track — this is what we were missing all along).
+                    try:
+                        self.send(OP_AUDIO_LISTEN, {"type": 1, "open": 1})
+                        log("[audio] asked the robot to open its mic (102001 open=1)")
+                    except Exception as e:
+                        log("[audio] could not open the robot mic:", e)
                     _sub("join")
                     # the robot's audio track may be published a moment after it joins — retry
                     # once after a short delay so we don't miss it (mirrors the app, where you
@@ -549,11 +564,17 @@ class Bridge:
                         return   # _pcm already logged "robot mic is OPEN"
                     time.sleep(0.5)
                 if obs._n[0] == 0:
-                    log("[audio] subscribed OK, but the robot's mic is still MUTED. It opens on "
-                        "its own, unpredictably (sometimes minutes later, sometimes not at all). "
-                        "This is a known limitation: the phone app sends an RTM command to open "
-                        "it that we haven't captured yet. Audio will play if/when the robot "
-                        "unmutes — no action needed.")
+                    # No PCM yet: re-send the "open your mic" command (102001). The robot may have
+                    # missed it if it was still joining when we first asked.
+                    log("[audio] no PCM yet — re-asking the robot to open its mic (102001)")
+                    try:
+                        self.send(OP_AUDIO_LISTEN, {"type": 1, "open": 1})
+                    except Exception:
+                        pass
+                    time.sleep(4)
+                    if obs._n[0] == 0:
+                        log("[audio] still no PCM. The robot did not open its microphone; "
+                            "listening will start as soon as it does.")
             threading.Thread(target=_audio_watchdog, daemon=True).start()
         except Exception as e:
             log("[audio] observer registration failed:", e)
@@ -715,6 +736,10 @@ class Bridge:
         if not (self.audio_enabled or self.talk_enabled):
             log("[talk] enable 'audio' (or 'talk') in the add-on options first")
             return
+        try:   # open the "us -> robot speaker" direction, like the app's mic button does
+            self.send(OP_AUDIO_TALK, {"type": 1, "open": 1})
+        except Exception:
+            pass
         with self._talk_lock:
             self._tx_queue.append(source)
         # if the TX loop isn't running (talk enabled but camera off), start it now

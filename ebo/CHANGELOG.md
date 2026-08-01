@@ -1,5 +1,18 @@
 # Changelog — Enabot integration
 
+## 0.26.81 — LISTEN WORKS: the robot's microphone finally comes through
+- **Solved the long-standing "listen" problem.** Subscribing to the robot's audio track was never
+  enough — the robot only **starts publishing its microphone** when it is explicitly told to open that
+  direction: opcode **`102001 {"type":1,"open":1}`**. We never sent it, so the track stayed subscribed
+  and silent, which looked exactly like a muted mic (and sent us chasing codecs for weeks).
+- Verified live: the mic came up **within a second** of the command — `bitrate ~73 kbps, 8000 Hz mono,
+  0 loss`, matching what the official app gets — and `open:0` stops it again (bitrate 0).
+- The bridge now sends it automatically when the robot joins and audio is enabled, and re-sends it once
+  if no audio has arrived. The **talk** direction gets the matching `102003 {"type":1,"open":1}`.
+- Along the way the audio codec option gained `0` (µ-law) and `auto`; the default `8` (G.711 A-law) is
+  correct — the codec was never the problem.
+
+
 ## 0.26.80 — audio investigation: more codec options, quieter log
 - The robot's audio subscription reaches state **SUBSCRIBED**, not "no publisher" — which suggests the
   robot *does* publish a mic track and we simply fail to DECODE it, rather than the mic being muted.
