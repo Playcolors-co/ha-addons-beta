@@ -1098,12 +1098,10 @@ function hlsPlay(node, attempt){
   if(v._hls){ try{v._hls.destroy();}catch(e){} v._hls=null; }
   try{ v.srcObject=null; }catch(e){}
   if(window.Hls && Hls.isSupported()){
-    // Low-Latency HLS uses blocking playlist reloads + chunked "parts". Those go through a LAN
-    // connection fine, but reverse proxies/CDNs (Cloudflare tunnel, Nabu Casa…) often buffer or
-    // break them — which shows up as a BLACK screen from cellular. So off-LAN we use plain HLS
-    // (ordinary segment GETs): a bit more delay, but it actually plays.
-    const ll = !isLikelyRemote();
-    const hls=new Hls({lowLatencyMode:ll, backBufferLength:4});
+    // Low-Latency HLS everywhere: measured on a real remote connection (through a Cloudflare tunnel)
+    // it works and is noticeably closer to live than plain HLS. Don't "downgrade" it off-LAN — the
+    // black screen people saw was the leftover WebRTC srcObject (cleared above), not LL-HLS.
+    const hls=new Hls({lowLatencyMode:true, backBufferLength:4});
     v._hls=hls;
     hls.on(Hls.Events.ERROR,(e,d)=>{
       if(!d.fatal) return;

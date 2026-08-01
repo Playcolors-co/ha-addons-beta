@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.26.64 — restore the low-latency remote video (undo an unnecessary downgrade)
+- 0.26.63 fixed the black screen (leftover WebRTC `srcObject`) but ALSO switched off-LAN playback to
+  plain HLS on a hunch that proxies/CDNs break Low-Latency HLS. That hunch was wrong — LL-HLS works
+  fine through a real remote connection and is much closer to live. Reverted: **Low-Latency HLS is used
+  everywhere again**, so the control-to-video lag is back to the 0.26.60 behaviour.
+- Kept from 0.26.63: the **black-screen fix** (always detach the peer connection / clear `srcObject`
+  before starting HLS) and **visible error reporting** instead of a silent black video.
+
+
 ## 0.26.63 — fix BLACK screen on the remote HLS fallback (regression from 0.26.62)
 - 0.26.62 started always *trying* WebRTC first (so LAN users on a domain URL get the fluid video). But
   a failed WebRTC attempt leaves a dead MediaStream on the `<video>` element (`pc.ontrack` sets
