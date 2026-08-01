@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.26.91 — the other components caught up with the audio work
+- **Integration**: new **Listen** switch, so the robot's microphone can be turned on/off from Home
+  Assistant (dashboards, automations), not just from the panel.
+- **MCP**: new **`ebo_listen`** tool, so an AI agent can open/close the microphone too.
+- **Docs**: new "Two-way audio (listen & talk)" section, and the drive-quality guidance now matches
+  reality (the drive view picks High on LAN / Low from remote by itself).
+
+
 ## 0.26.90 — the audio level meters are actually readable now
 - The two meters were tiny and barely moved. They are now **bigger and brighter** (labelled 🔊 and 🎤,
   with a visible track and a glow), and the level is computed **perceptually** (RMS with gain) instead
