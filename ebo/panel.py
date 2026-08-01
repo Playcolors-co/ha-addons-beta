@@ -46,7 +46,7 @@ ALLOWED_CMDS = {
     "say", "talk",
     "video_quality/set", "image_style/set", "volume/set", "talkback_volume/set",
     "speed/set", "sports_record/set", "call_rec/set", "eyes/set",
-    "move_mode/set", "avoid_obstacle/set", "night_vision/set",
+    "move_mode/set", "avoid_obstacle/set", "night_vision/set", "listen/set",
     "patrol/start", "patrol/stop", "patrol/route/set",
     "route/record/start", "route/record/stop", "route/save", "route/delete",
     # raw opcode escape hatch for AI/automation (and the eyes protocol): {"id":<op>,"data":{...}}
@@ -863,6 +863,16 @@ async function wakeRobot(node, btn){
   await cmd(node,'camera/set','on');
   setTimeout(refresh, 2500);      // the robot needs a moment to come back and start streaming
 }
+// Listen = open/close the robot's microphone. Subscribing alone is not enough: the robot only
+// publishes its mic once told to (opcode 102001) — this is that switch.
+async function toggleListen(node){
+  const r=ROBOTS.find(x=>x.node===node)||{}, st=r.state||{};
+  const on = !(st.listen!=='false');
+  const b=document.getElementById('fs-listen');
+  if(b){ b.textContent = on?'🔊':'🔇'; b.className='fs-ic'+(on?' on':''); }
+  toast(on?'Listening to the robot — unmute the video to hear it':'Microphone closed');
+  await cmd(node,'listen/set', on?'on':'off');
+}
 // Put the robot to sleep on demand (ZZ): leaving the session is exactly what makes it doze off,
 // same as closing the official app.
 async function sleepRobot(node, btn){
@@ -1015,6 +1025,7 @@ function fsTop(node){
     <div class="fs-actions">
       <button class="fs-ic ${laserOn?'on':''}" id="fs-laser" onclick="toggleLaser('${node}')" title="Laser">•</button>
       <button class="fs-ic" id="fs-night" onclick="cycleNight('${node}')" title="Day/Night vision">${NV_ICON[st.night_vision]||'🌗'}</button>
+      <button class="fs-ic ${st.listen!=='false'?'on':''}" id="fs-listen" onclick="toggleListen('${node}')" title="Listen (robot microphone)">${st.listen!=='false'?'🔊':'🔇'}</button>
       ${st.routes_supported==='true' ? `<button class="fs-ic ${st.route_recording==='true'?'rec':''}" id="fs-rec" onclick="recordRoute('${node}')" title="Record a route (drive to teach a path)">⏺</button>` : ''}
       <button class="fs-ic" onclick="cmd('${node}','dock','')" title="Return to base">⌂</button>
       <button class="fs-ic" onclick="openFsSettings()" title="Settings">⚙</button>
@@ -1459,6 +1470,9 @@ function detailView(r){
       <label>Eyes</label><select onchange="cmd('${r.node}','eyes/set',this.value)">${opt(EY,st.eyes)}</select>
     </div>
     <div class="sec"><h4>Audio</h4>
+      <label class="tgl"><span>Listen — hear the robot's microphone</span>
+        <input type="checkbox" ${st.listen!=='false'?'checked':''} onchange="cmd('${r.node}','listen/set',this.checked?'on':'off')"></label>
+      <div class="note" style="font-size:11px;color:#8a929a;margin-top:2px">The audio comes through the camera stream — unmute the player to hear it.</div>
       <label>Speaker volume — the robot's own voice &amp; sounds (${st.volume??st.playback_volume??'—'})</label>
       <input type="range" min="0" max="100" value="${st.volume??st.playback_volume??50}" onchange="cmd('${r.node}','volume/set',this.value)">
       <label>Call volume — your voice through the robot, two-way talk (${st.talkback_volume??'—'})</label>

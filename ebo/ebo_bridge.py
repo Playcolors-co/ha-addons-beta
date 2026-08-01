@@ -191,6 +191,7 @@ class Bridge:
         self.rtc_state = None
         self.routes = []                 # [(routeName, id)] from the robot
         self.patrol_choice = PATROL_AUTO  # currently selected patrol route
+        self.listen_on = True            # robot mic -> us (102001); you can switch it off
         self._last_activity = time.time()   # last user command (drives auto-standby)
         self._route_rec = False          # True while recording a route (teach-by-driving)
         self._route_pending = None       # RouteDataInfo from 103206, awaiting a name + save
@@ -290,8 +291,10 @@ class Bridge:
                     # Tell the robot to actually PUBLISH its mic (subscribing alone gets you a
                     # subscribed-but-silent track — this is what we were missing all along).
                     try:
-                        self.send(OP_AUDIO_LISTEN, {"type": 1, "open": 1})
-                        log("[audio] asked the robot to open its mic (102001 open=1)")
+                        self.send(OP_AUDIO_LISTEN,
+                                  {"type": 1, "open": 1 if self.listen_on else 0})
+                        log("[audio] asked the robot to %s its mic (102001)"
+                            % ("open" if self.listen_on else "keep closed"))
                     except Exception as e:
                         log("[audio] could not open the robot mic:", e)
                     _sub("join")
@@ -1318,7 +1321,7 @@ class Bridge:
         # native mode (expose_mqtt off), where the HA-entity discovery below is skipped. (These used
         # to sit AFTER the expose_mqtt gate, so native mode silently stopped receiving commands.)
         for _t in ("laser/set", "speed/set", "move/+", "move/vector", "joystick", "sleep/set",
-                   "wake", "say", "talk", "audio_tx/set", "volume/set", "talkback_volume/set",
+                   "wake", "say", "talk", "listen/set", "audio_tx/set", "volume/set", "talkback_volume/set",
                    "sports_record/set", "call_rec/set", "upload_cloud/set", "dock",
                    "patrol/route/set", "patrol/start", "patrol/stop", "camera/set", "connected/set",
                    "route/record/start", "route/record/stop", "route/save", "route/delete",
@@ -1559,6 +1562,7 @@ class Bridge:
         c.subscribe("%s/wake" % NODE)
         c.subscribe("%s/say" % NODE)
         c.subscribe("%s/talk" % NODE)          # play audio (URL/path) through the robot speaker
+        c.subscribe("%s/listen/set" % NODE)    # open/close the robot's microphone (102001)
         c.subscribe("%s/audio_tx/set" % NODE)  # DIAG A/B: off | silence | tone
         c.subscribe("%s/volume/set" % NODE)
         c.subscribe("%s/talkback_volume/set" % NODE)
@@ -1611,6 +1615,13 @@ class Bridge:
                 if payload:
                     self.send(OP_SAY, {"userId": self.account, "text": payload})
                     self.mqtt.publish("%s/say/state" % NODE, payload)
+            elif topic.endswith("/listen/set"):
+                # open/close the robot's microphone (what the app's speaker button does)
+                on = payload.lower() in ("on", "true", "1")
+                self.listen_on = on
+                self.send(OP_AUDIO_LISTEN, {"type": 1, "open": 1 if on else 0})
+                log("[audio] listen -> %s" % ("on" if on else "off"))
+                self._publish_settings()
             elif topic.endswith("/talk"):
                 # play arbitrary audio (URL/path) through the robot's speaker — YOUR voice/audio
                 self._talk(payload)
@@ -1808,6 +1819,7 @@ class Bridge:
             "laser": "true" if stt.get("laserStatus") else "false",
             "speed": se.get("moveSpeed"),
             "talkback_volume": se.get("talkbackVolume"),
+            "listen": "true" if self.listen_on else "false",
             "sports_record": "true" if se.get("sportsRecord") else "false",
             "call_rec": "true" if se.get("callAutoRecording") else "false",
             # routes / patrol (teach-and-repeat): the saved routes, plus recording state.

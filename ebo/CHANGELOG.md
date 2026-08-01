@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.26.82 — a Listen switch you can actually press
+- 0.26.81 opened the robot's microphone automatically, but there was **no control for it**. Now there is:
+  - **Robot page → Audio → "Listen — hear the robot\'s microphone"** toggle;
+  - **Fullscreen → 🔊 / 🔇 button** next to the laser and day/night buttons.
+- Turning it off sends `102001 {"open":0}` (the robot stops publishing its mic), turning it on sends
+  `open:1`. The choice is remembered and re-applied whenever the robot rejoins.
+- Reminder shown in the UI: the audio rides **inside the camera stream**, so the video player must be
+  unmuted to actually hear it.
+
+
 ## 0.26.81 — LISTEN WORKS: the robot's microphone finally comes through
 - **Solved the long-standing "listen" problem.** Subscribing to the robot's audio track was never
   enough — the robot only **starts publishing its microphone** when it is explicitly told to open that
