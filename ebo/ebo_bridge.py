@@ -231,6 +231,7 @@ class Bridge:
         self._talk_lock = threading.Lock()
         self._tx_run = False           # audio TX loop (keep-alive silence + talk) running?
         self._tx_queue = []            # queued 'talk' sources
+        self._talk_stop = False        # set by talk/stop to end a live push-to-talk
         self._tx_mode = "silence"      # DIAG: idle TX content — "silence" | "tone"
         self._tx_start_t = 0.0         # DIAG: when we started publishing (to time mic-open)
         self._tone_buf = None          # DIAG: cached tone PCM (built lazily)
@@ -663,13 +664,21 @@ class Bridge:
             if src:
                 log("[talk] playing:", src)
                 proc = None
+                # A live push-to-talk source (rtsp://…/talk published by the browser) can take a
+                # moment to appear; don't give up on the first failure.
+                live = src.startswith("rtsp://")
+                tries = 6 if live else 1
+                extra = ["-rtsp_transport", "tcp", "-fflags", "nobuffer",
+                         "-flags", "low_delay", "-probesize", "200k",
+                         "-analyzeduration", "300000"] if live else []
                 try:
                     proc = subprocess.Popen(
-                        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", src,
+                        ["ffmpeg", "-hide_banner", "-loglevel", "error"] + extra + ["-i", src,
                          "-f", "s16le", "-ac", "1", "-ar", str(AUDIO_RATE), "pipe:1"],
                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
                     n = 0
-                    while self._tx_run:
+                    _t0 = time.time()
+                    while self._tx_run and not self._talk_stop:
                         chunk = proc.stdout.read(frame_bytes)
                         if not chunk:
                             break
@@ -683,6 +692,11 @@ class Bridge:
                         n += 1
                         time.sleep(0.02)
                     log("[talk] done — %d frames (~%.1fs)" % (n, n * 0.02))
+                    if live and n == 0 and not self._talk_stop and tries > 1 \
+                            and time.time() - _t0 < 10:
+                        time.sleep(0.8)          # publisher not up yet — try again shortly
+                        with self._talk_lock:
+                            self._tx_queue.insert(0, src)
                 except Exception as e:
                     log("[talk] error:", e)
                 finally:
@@ -739,6 +753,7 @@ class Bridge:
         if not (self.audio_enabled or self.talk_enabled):
             log("[talk] enable 'audio' (or 'talk') in the add-on options first")
             return
+        self._talk_stop = False
         try:   # open the "us -> robot speaker" direction, like the app's mic button does
             self.send(OP_AUDIO_TALK, {"type": 1, "open": 1})
         except Exception:
@@ -1321,7 +1336,7 @@ class Bridge:
         # native mode (expose_mqtt off), where the HA-entity discovery below is skipped. (These used
         # to sit AFTER the expose_mqtt gate, so native mode silently stopped receiving commands.)
         for _t in ("laser/set", "speed/set", "move/+", "move/vector", "joystick", "sleep/set",
-                   "wake", "say", "talk", "listen/set", "audio_tx/set", "volume/set", "talkback_volume/set",
+                   "wake", "say", "talk", "talk/stop", "listen/set", "audio_tx/set", "volume/set", "talkback_volume/set",
                    "sports_record/set", "call_rec/set", "upload_cloud/set", "dock",
                    "patrol/route/set", "patrol/start", "patrol/stop", "camera/set", "connected/set",
                    "route/record/start", "route/record/stop", "route/save", "route/delete",
@@ -1563,6 +1578,7 @@ class Bridge:
         c.subscribe("%s/say" % NODE)
         c.subscribe("%s/talk" % NODE)          # play audio (URL/path) through the robot speaker
         c.subscribe("%s/listen/set" % NODE)    # open/close the robot's microphone (102001)
+        c.subscribe("%s/talk/stop" % NODE)     # end a live push-to-talk
         c.subscribe("%s/audio_tx/set" % NODE)  # DIAG A/B: off | silence | tone
         c.subscribe("%s/volume/set" % NODE)
         c.subscribe("%s/talkback_volume/set" % NODE)
@@ -1615,6 +1631,13 @@ class Bridge:
                 if payload:
                     self.send(OP_SAY, {"userId": self.account, "text": payload})
                     self.mqtt.publish("%s/say/state" % NODE, payload)
+            elif topic.endswith("/talk/stop"):
+                # end a live push-to-talk: drop what's queued and break the current playback
+                self._talk_stop = True
+                with self._talk_lock:
+                    self._tx_queue = []
+                self.send(OP_AUDIO_TALK, {"type": 1, "open": 0})
+                log("[talk] stopped")
             elif topic.endswith("/listen/set"):
                 # open/close the robot's microphone (what the app's speaker button does)
                 on = payload.lower() in ("on", "true", "1")

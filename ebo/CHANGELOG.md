@@ -1,5 +1,18 @@
 # Changelog — Enabot integration
 
+## 0.26.88 — talk to the robot with your phone's microphone, and see the audio levels
+- **New 🎤 button in the fullscreen view: two-way audio, like the official app.** Your browser publishes
+  the microphone to the add-on over WebRTC (WHIP) and the bridge feeds it straight into the robot's
+  speaker. Tap to start, tap again to stop; leaving the drive view stops it too.
+- **New level meters in the top bar**: a green bar for what the robot hears you play (speaker) and a
+  blue one for your microphone, so you can *see* that audio is flowing in each direction instead of
+  guessing.
+- The bridge gained a `talk/stop` command and now retries briefly when the live microphone stream
+  isn\'t published yet.
+- Requires a browser microphone permission, and (like the fluid video) a direct path to the add-on —
+  so it works on your LAN.
+
+
 ## 0.26.87 — fix: the picture froze after audio was added (and made the robot look unresponsive)
 - Adding the Opus audio track broke the **snapshot grabber**: it probed only **32 bytes** of the stream
   (a latency trick) which was no longer enough for ffmpeg to identify the streams, so **every grab
