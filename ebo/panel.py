@@ -1295,6 +1295,11 @@ async function fsPlay(node){
     if(st==='connected'){
       _fsStatus(null);                 // FLUID WebRTC is playing
       _fsWatchStats(v, pc);            // badge: WebRTC · Nfps
+      // WebRTC means the browser talks to the add-on directly: it can carry the robot's High source
+      // (~720p). Remember it, so next time we ask for High *before* connecting (no mid-stream switch).
+      localStorage.setItem('ebo_transport','webrtc');
+      const cur=(ROBOTS.find(x=>x.node===node)||{}).state||{};
+      if(cur.video_quality!=='High'){ bg(node,'video_quality/set','High'); }
       pc.addEventListener('connectionstatechange',()=>{   // self-heal if the stream drops
         if((pc.connectionState==='failed'||pc.connectionState==='disconnected') && open() && v._pc===pc){
           bg(node,'camera/set','on'); setTimeout(()=>{ if(open()&&v._pc===pc) fsPlay(node); },800);
@@ -1306,6 +1311,9 @@ async function fsPlay(node){
     await new Promise(r=>setTimeout(r,600));
   }
   if(open()){
+    localStorage.setItem('ebo_transport','hls');
+    const _st=(ROBOTS.find(x=>x.node===node)||{}).state||{};
+    if(_st.video_quality!=='Low'){ bg(node,'video_quality/set','Low'); }   // keep remote watchable
     _fsBadge(maybeRemote?'HLS · remote':'HLS · fallback', 'hls');
     console.log('[ebo] WebRTC unavailable → HLS');
     _fsStatus('Starting video…');                       // cleared when it actually plays
@@ -1339,7 +1347,10 @@ function enterFS(node){
   // not the resolution.)
   const r=ROBOTS.find(x=>x.node===node);
   _driveVQ=(r&&r.state&&r.state.video_quality)||null;
-  const wantVQ = isLikelyRemote() ? 'Low' : 'High';
+  // Which quality we can afford depends on the transport that will actually be used — and the URL
+  // is a bad predictor (opening HA through your own domain looks "remote" even on the LAN). So we
+  // remember what worked LAST time and confirm it below once the connection is really up.
+  const wantVQ = (localStorage.getItem('ebo_transport')==='webrtc') ? 'High' : 'Low';
   if(_driveVQ !== wantVQ) bg(node,'video_quality/set',wantVQ);
   setTimeout(()=>fsPlay(node),400);                 // give the camera a moment, then play
   if(fs.requestFullscreen) fs.requestFullscreen().then(()=>fs.focus()).catch(()=>{});

@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.26.79 — the sharper drive video now actually kicks in (fix for 0.26.78)
+- 0.26.78 chose the quality from the **URL** (the "are we remote?" guess). If you open Home Assistant
+  through your own domain — even while sitting on the same LAN — that guess says "remote", so it kept
+  forcing **Low** and the badge still read `848px`. Wrong signal.
+- Now it uses the **transport that actually connects**: when **WebRTC** comes up, the browser is
+  talking to the add-on directly, so the robot is switched to **High** (~720p) and that fact is
+  remembered — from then on High is requested *before* connecting, with no mid-stream switch. When it
+  falls back to **HLS**, quality is put back to **Low** so the remote stream stays watchable.
+
+
 ## 0.26.78 — much sharper drive video on the LAN (720p instead of 480p)
 - The drive view always forced the robot to **Low (848×480)**. That dated back to a lag problem which
   — measured again — was really the **x264 `fast` preset**, not the resolution. With `ultrafast` the
