@@ -690,7 +690,7 @@ dialog .in{padding:18px}h3{margin:0 0 10px}.note{font-size:12px;color:#8a929a;ma
   <div class="tabp" data-tab="cam" style="display:none">
     <label>Night vision</label>
     <select id="fs-nv" onchange="if(fsNode)cmd(fsNode,'night_vision/set',this.value)">${''}</select>
-    <label>Video quality</label><select id="fs-vq" onchange="if(fsNode)cmd(fsNode,'video_quality/set',this.value)">${''}</select>
+    <label>Video quality</label><select id="fs-vq" onchange="if(fsNode){_driveVQ=null;cmd(fsNode,'video_quality/set',this.value);}">${''}</select>
   </div>
   <div class="tabp" data-tab="aud" style="display:none">
     <label>Speaker volume — the robot's own voice &amp; sounds (<span id="fs-svol-v">—</span>)</label>
@@ -1329,9 +1329,18 @@ function enterFS(node){
   // which our real-time H.265→H.264 re-encode can't keep up with — frames pile up and the video lags
   // by SECONDS. At Low (848×480) the encoder keeps up → smooth ~20 fps at ~200 ms. We save the
   // previous quality and restore it on exit (so still-viewing keeps your chosen quality).
+  // Quality follows the TRANSPORT, because they have opposite constraints:
+  //   * LAN → WebRTC: the browser gets the stream directly, so we can afford the robot's HIGH
+  //     source (2304×1296) downscaled to ~720p — measured on a 2-core host: 25 fps, 0 frames
+  //     dropped, ~36% CPU. Much sharper than 480p, still fluid.
+  //   * remote → HLS: everything squeezes through the proxy, so stay on LOW (848×480) to keep it
+  //     watchable.
+  // (The old blanket "always Low" came from a lag problem that was really the *fast* x264 preset,
+  // not the resolution.)
   const r=ROBOTS.find(x=>x.node===node);
   _driveVQ=(r&&r.state&&r.state.video_quality)||null;
-  if(_driveVQ && _driveVQ!=='Low') bg(node,'video_quality/set','Low');
+  const wantVQ = isLikelyRemote() ? 'Low' : 'High';
+  if(_driveVQ !== wantVQ) bg(node,'video_quality/set',wantVQ);
   setTimeout(()=>fsPlay(node),400);                 // give the camera a moment, then play
   if(fs.requestFullscreen) fs.requestFullscreen().then(()=>fs.focus()).catch(()=>{});
   if(wakeTimer) clearInterval(wakeTimer);
@@ -1346,7 +1355,7 @@ function exitFS(){
   if(wakeTimer){clearInterval(wakeTimer);wakeTimer=null;}
   const v=document.getElementById('fsvid');
   const node=v.getAttribute('data-node');
-  if(_driveVQ && _driveVQ!=='Low' && node) bg(node,'video_quality/set',_driveVQ);   // restore quality
+  if(_driveVQ && node) bg(node,'video_quality/set',_driveVQ);   // restore the quality you had
   _driveVQ=null;
   _cleanupVid(v);                                      // stop WebRTC + HLS
   document.getElementById('fs').style.display='none';

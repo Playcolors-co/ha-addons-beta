@@ -1,5 +1,17 @@
 # Changelog — Enabot integration
 
+## 0.26.78 — much sharper drive video on the LAN (720p instead of 480p)
+- The drive view always forced the robot to **Low (848×480)**. That dated back to a lag problem which
+  — measured again — was really the **x264 `fast` preset**, not the resolution. With `ultrafast` the
+  robot's **High source (2304×1296)** downscaled to ~720p runs at **25 fps with 0 dropped frames and
+  ~36% CPU on a 2-core host**.
+- So quality now follows the **transport**, because they have opposite constraints:
+  - **On your LAN (WebRTC)** → the robot is switched to **High** → visibly sharper ~720p, still fluid.
+  - **From remote (HLS)** → stays on **Low**, so it remains watchable through the proxy.
+- Your own quality setting is saved on entering the drive view and **restored when you leave** — and if
+  you pick a quality by hand in the fullscreen ⚙ menu, that choice is kept instead of being overwritten.
+
+
 ## 0.26.77 — readable battery / Wi-Fi gauges, and clearer feedback when sending the robot to sleep
 - **Battery and signal are now little bar gauges** instead of an emoji and a raw number: the battery
   is a 4-segment gauge that turns amber below 50% and red below 20%, with a **⚡ bolt while charging**;
