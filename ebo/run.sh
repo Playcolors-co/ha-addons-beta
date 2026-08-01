@@ -72,9 +72,13 @@ elif [ ! -f /data/api_token ]; then
 fi
 export EBO_API_TOKEN="$(cat /data/api_token 2>/dev/null || echo "${EBO_API_TOKEN:-}")"
 if [ -z "$OPT_TOKEN" ] && [ -n "${SUPERVISOR_TOKEN:-}" ] && [ -n "$EBO_API_TOKEN" ]; then
-  # Merge: send the FULL options (Supervisor replaces the whole block) so we don't wipe the login.
-  MERGED="$(jq -n --arg e "$EBO_EMAIL" --arg p "$EBO_PASSWORD" --arg pk "$EBO_PAYLOAD_KEY" \
-                  --arg sk "$EBO_SIGN_KEY" --arg t "$EBO_API_TOKEN" \
+  # Merge: the Supervisor REPLACES the whole options block, so we must send every existing option
+  # back — otherwise persisting the token would silently wipe the user's other settings (video,
+  # audio, mcp, log_level…). Start from the current options file and only add/override api_token.
+  MERGED="$(jq --arg t "$EBO_API_TOKEN" '{options: (. + {api_token: $t})}' "$OPTS" 2>/dev/null)"
+  # Fallback if the options file can't be read: at least keep the login fields.
+  [ -z "$MERGED" ] && MERGED="$(jq -n --arg e "$EBO_EMAIL" --arg p "$EBO_PASSWORD" \
+                  --arg pk "$EBO_PAYLOAD_KEY" --arg sk "$EBO_SIGN_KEY" --arg t "$EBO_API_TOKEN" \
                   '{options:{email:$e,password:$p,payload_key:$pk,sign_key:$sk,api_token:$t}}')"
   curl -sf -X POST -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" -H "Content-Type: application/json" \
     -d "$MERGED" http://supervisor/addons/self/options >/dev/null 2>&1 \

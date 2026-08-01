@@ -1,5 +1,16 @@
 # Changelog — Enabot integration
 
+## 0.26.65 — settings no longer get wiped, and the panel works for non-admin users
+- **Fixed: options could be silently reset.** When the add-on persisted its auto-generated `api_token`
+  back to the Supervisor, it sent only the login fields — and the Supervisor **replaces the whole
+  options block**, so everything else (video/audio settings, log level, the new MCP flag…) was wiped.
+  It now merges the token into the **existing** options, so nothing else changes. This is why a
+  toggled setting could appear not to "stick" on a fresh install.
+- **The sidebar panel is now visible to non-admin users** (`panel_admin: false`). Home Assistant hides
+  add-on panels from non-admins by default, but the panel *is* how you drive the robot — so family
+  accounts can use it too. Every request is still authenticated by Ingress as that user.
+
+
 ## 0.26.64 — restore the low-latency remote video (undo an unnecessary downgrade)
 - 0.26.63 fixed the black screen (leftover WebRTC `srcObject`) but ALSO switched off-LAN playback to
   plain HLS on a hunch that proxies/CDNs break Low-Latency HLS. That hunch was wrong — LL-HLS works
