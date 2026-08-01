@@ -61,6 +61,10 @@ except Exception:
 # ---- protocol opcodes (see docs/PROTOCOLLO.md) ----
 # The robot's mic streams at 8 kHz mono (measured on the real app). Override if it ever differs.
 AUDIO_RATE = int(os.environ.get("EBO_AUDIO_RATE", "8000"))
+# Auto-standby: seconds of no commands after which we leave the Agora session so the robot can go
+# to sleep (the ZZ eyes) like it does when you close the official app. 0 disables it (the add-on
+# then keeps the robot awake for as long as it runs — the old behaviour).
+STANDBY_TIMEOUT = int(os.environ.get("EBO_STANDBY_TIMEOUT", "300"))
 
 OP_HANDSHAKE = 101003
 OP_HEARTBEAT = 101005
@@ -179,6 +183,7 @@ class Bridge:
         self.rtc_state = None
         self.routes = []                 # [(routeName, id)] from the robot
         self.patrol_choice = PATROL_AUTO  # currently selected patrol route
+        self._last_activity = time.time()   # last user command (drives auto-standby)
         self._route_rec = False          # True while recording a route (teach-by-driving)
         self._route_pending = None       # RouteDataInfo from 103206, awaiting a name + save
         # Route/patrol support is model-dependent: the EBO Air 2 firmware ignores these opcodes (the
@@ -1069,12 +1074,28 @@ class Bridge:
     def control_loop(self):
         """Heartbeat every 2 s; movement at 10 Hz only while there's an active vector."""
         last_beat = 0.0
+        last_idle_check = 0.0
         was_moving = False
         while not self.stop.is_set():
             now = time.time()
             if now - last_beat >= 2:
                 self.send(OP_HEARTBEAT, {"state": 0})
                 last_beat = now
+            # Auto-standby: the robot only sleeps when nobody is watching, and WE are a viewer that
+            # never leaves — which is why it never showed the ZZ eyes while the add-on ran. After
+            # STANDBY_TIMEOUT with no command from you, leave the session so it can sleep, exactly
+            # like closing the official app. Any command (or opening the camera) wakes it again.
+            if STANDBY_TIMEOUT > 0 and self.connected and now - last_idle_check >= 5:
+                last_idle_check = now
+                idle = now - getattr(self, "_last_activity", 0)
+                if idle > STANDBY_TIMEOUT:
+                    log("[standby] idle for %d min — leaving the session so the robot can sleep"
+                        % (idle / 60))
+                    self._last_activity = now      # don't re-trigger immediately
+                    try:
+                        self.set_connected(False)
+                    except Exception as e:
+                        log("[standby] failed:", e)
             with self.lock:
                 # watchdog: if the command expired, zero it (dead-man's switch)
                 if self.vec_deadline and now > self.vec_deadline:
@@ -1511,6 +1532,9 @@ class Bridge:
     def _on_mqtt_message(self, c, u, msg):
         topic = msg.topic
         payload = msg.payload.decode("utf-8", "replace").strip()
+        # Any command from you counts as "someone is using the robot" and postpones auto-standby.
+        # (Driving in fullscreen re-asserts camera/on every ~20 s, so it stays awake while you drive.)
+        self._last_activity = time.time()
         try:
             if topic.endswith("/laser/set"):
                 self.send(OP_LASER, {"laser": payload.lower() in ("on", "true", "1")})

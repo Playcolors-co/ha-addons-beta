@@ -1,5 +1,18 @@
 # Changelog — Enabot integration
 
+## 0.26.72 — the robot can finally fall asleep again (auto-standby)
+- **The add-on kept the robot permanently awake.** The robot only sleeps when nobody is watching, and
+  the bridge stayed in its Agora session for as long as the add-on ran — so it never showed the **ZZ
+  eyes**, unlike when you close the official app. That was constant surveillance nobody asked for.
+- New option **"Let the robot sleep after (minutes)"** (default **5**, `0` = never): after that long
+  with no commands, the add-on **leaves the session** so the robot goes to sleep, exactly like closing
+  the app. Any command — or opening the camera / drive view — wakes it again (and 0.26.70's fresh
+  cloud session means it comes back even from deep sleep).
+- While you're driving, the fullscreen view re-asserts the camera every ~20 s, so it stays awake.
+- Known limitation: only *commands* postpone standby. Passively watching the `camera.ebo` card does
+  not, so the robot may doze off while you watch — drive from the panel, or set the option to 0.
+
+
 ## 0.26.71 — fix the reconnect loop introduced in 0.26.70
 - 0.26.70 made the wake helper reconnect when no frames were flowing — but that helper is also called
   from the connect path and from the "still waiting for the first frame" retry (every 8 s), so it
