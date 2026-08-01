@@ -60,6 +60,7 @@ ALLOWED_CMDS = {
 _robots = {}
 _lock = threading.Lock()
 _snap_cache = {}
+_snap_fail = {}      # node -> ts of the last failed grab (backoff while the robot sleeps)
 _snap_lock = {}
 _client = None
 
@@ -225,10 +226,17 @@ def _snapshot(node):
     with _lock:
         r = _robots.get(node)
         url = r and r.get("rtsp")
-    if not url:
-        return None
+        asleep = bool(r) and r.get("camera") != "on"
     now = time.time()
     ts, cached = _snap_cache.get(node, (0, None))
+    # Robot asleep (ZZ) or no stream: there's nothing to grab, and trying costs a multi-second
+    # ffmpeg timeout on every refresh — which made the thumbnails go blank and the panel sluggish.
+    # Serve the LAST frame we saw instead, so you still see where the robot is.
+    if not url or asleep:
+        return cached
+    # Same when a grab just failed (stream still coming up): don't retry in a tight loop.
+    if cached and now - _snap_fail.get(node, 0) < 5:
+        return cached
     if cached and now - ts < 0.25:          # short cache: keep frames FRESH (low latency > fps)
         return cached
     lock = _snap_lock.setdefault(node, threading.Lock())
@@ -245,12 +253,14 @@ def _snapshot(node):
             ["ffmpeg", "-nostdin", "-fflags", "nobuffer", "-flags", "low_delay",
              "-probesize", "32", "-analyzeduration", "0", "-rtsp_transport", "tcp",
              "-i", internal, "-frames:v", "1", "-q:v", "6", "-f", "mjpeg", "pipe:1"],
-            capture_output=True, timeout=8).stdout
+            capture_output=True, timeout=5).stdout
         if out:
             _snap_cache[node] = (time.time(), out)
+            _snap_fail.pop(node, None)
             return out
+        _snap_fail[node] = time.time()
     except Exception:
-        pass
+        _snap_fail[node] = time.time()
     finally:
         lock.release()
     return cached
@@ -561,6 +571,18 @@ input[type=range]{width:100%}
 @media(prefers-color-scheme:dark){.ic:hover{background:#ffffff14}}
 .bigwrap{position:relative;cursor:pointer}
 .fshint{position:absolute;right:10px;bottom:20px;background:#0008;color:#fff;font-size:11px;padding:3px 8px;border-radius:8px;pointer-events:none}
+/* sleeping (ZZ): keep showing the last frame, dimmed, with a big wake button over it */
+.bigwrap.asleep .big{filter:grayscale(.6) brightness(.45)}
+.wakebtn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2;display:flex;
+  flex-direction:column;align-items:center;gap:6px;border:0;cursor:pointer;color:#fff;
+  background:rgba(20,24,28,.72);backdrop-filter:blur(4px);padding:16px 22px;border-radius:16px}
+.wakebtn .ic{font-size:34px;line-height:1}
+.wakebtn .tx{font-size:12px;opacity:.9}
+.wakebtn:active{transform:translate(-50%,-50%) scale(.95)}
+.wakebtn.busy{opacity:.6;pointer-events:none}
+.thumbwrap{position:relative}
+.zzbadge{position:absolute;top:6px;right:6px;background:#0009;color:#cfe;font-size:11px;
+  padding:2px 6px;border-radius:8px;pointer-events:none}
 .warn{background:#e67e22;color:#fff;border-radius:10px;padding:9px 12px;font-size:13px;margin:10px 0;font-weight:600}
 dialog{border:0;border-radius:14px;padding:0;max-width:440px;width:92%;background:#fff;color:#111}
 @media(prefers-color-scheme:dark){dialog{background:#1c2126;color:#e9ecef}}
@@ -750,6 +772,13 @@ function routesHtml(r){
       <button class="btn pri" onclick="replayRoute('${r.node}','${nm}')">▶ Repeat</button>
       <button class="btn" onclick="delRoute('${r.node}',${rt.id})" title="Delete route">🗑</button></div>`;
   }).join('')+'</div>';
+}
+// Wake the robot straight from the detail view (no need to enter fullscreen just to wake it).
+// camera/set on is the reliable wake: it re-joins the robot's session with a fresh cloud session.
+async function wakeRobot(node, btn){
+  if(btn){ btn.classList.add('busy'); const t=btn.querySelector('.tx'); if(t) t.textContent='Waking…'; }
+  await cmd(node,'camera/set','on');
+  setTimeout(refresh, 2500);      // the robot needs a moment to come back and start streaming
 }
 function replayRoute(node,name){ cmd(node,'patrol/route/set',name); setTimeout(()=>cmd(node,'patrol/start',''),350); }
 function delRoute(node,id){ if(confirm('Delete this route?')){ cmd(node,'route/delete',''+id); } }
@@ -1246,7 +1275,10 @@ function listView(){
   if(!ROBOTS.length) return `<div class="empty">Waiting for robots… make sure the add-on is running.</div>`;
   return `<div class="list">`+ROBOTS.map(r=>`
     <div class="rowitem" onclick="openRobot('${r.node}')">
-      <img class="thumb prev" data-node="${r.node}" src="${B}/api/snapshot?node=${encodeURIComponent(r.node)}&t=${Date.now()}" onerror="this.style.opacity=.25">
+      <div class="thumbwrap">
+        <img class="thumb prev" data-node="${r.node}" src="${B}/api/snapshot?node=${encodeURIComponent(r.node)}&t=${Date.now()}" onerror="this.style.opacity=.25" style="${r.camera==='on'?'':'filter:grayscale(.6) brightness(.55)'}">
+        ${r.camera==='on'?'':'<span class="zzbadge">Zz</span>'}
+      </div>
       <div style="flex:1">
         <div class="ri-name"><span id="dot-${r.node}" class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
         <div id="meta-${r.node}" class="ri-meta">${meta(r)}</div>
@@ -1259,9 +1291,11 @@ function detailView(r){
   const st=r.state||{}, cam=(r.camera==='on');
   const charging = (st.charging===true || st.charging==='true');
   return `<div class="detail">
-    <div class="bigwrap" onclick="enterFS('${r.node}')" title="Tap for fullscreen">
+    <div class="bigwrap ${cam?'':'asleep'}" onclick="enterFS('${r.node}')" title="Tap for fullscreen">
       <img class="big prev" data-node="${r.node}" src="${B}/api/snapshot?node=${encodeURIComponent(r.node)}&t=${Date.now()}" onerror="this.style.opacity=.25">
-      <span class="fshint">⛶ tap for fullscreen</span>
+      ${cam ? '<span class="fshint">⛶ tap for fullscreen</span>' : `
+      <button class="wakebtn" title="Wake the robot" onclick="event.stopPropagation();wakeRobot('${r.node}',this)">
+        <span class="ic">☀</span><span class="tx">Sleeping — tap to wake</span></button>`}
     </div>
     ${charging? '<div class="warn">🔌 On the charger — take the robot off the base to drive it.</div>':''}
     <div class="dname"><span id="d-dot" class="dot ${r.online?'on':''}"></span>${esc(r.name||r.node)}</div>
@@ -1315,7 +1349,12 @@ function detailView(r){
   </div>`;
 }
 let lastSig=null;
-function sig(){ return SEL ? 'd:'+SEL : 'l:'+ROBOTS.map(r=>r.node).join(','); }
+// The signature decides when to REBUILD the view (vs just refreshing values). It includes each
+// robot's camera state so the "sleeping" look — dimmed frame, Zz badge, the big wake button —
+// appears and disappears as the robot falls asleep or wakes up.
+function camOf(n){ const r=ROBOTS.find(x=>x.node===n); return (r&&r.camera)||''; }
+function sig(){ return SEL ? 'd:'+SEL+':'+camOf(SEL)
+                           : 'l:'+ROBOTS.map(r=>r.node+':'+(r.camera||'')).join(','); }
 function render(force){
   const s=sig();
   if(!force && s===lastSig){ updateValues(); return; }   // same structure: update in place, don't rebuild (keeps the live preview from flickering)

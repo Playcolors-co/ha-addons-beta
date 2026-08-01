@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.26.74 — see the last frame while the robot sleeps, and wake it with one tap
+- **The picture no longer disappears when the robot is asleep (ZZ).** Both the robot list and the
+  detail keep showing the **last frame we saw**, dimmed, with a **Zz** badge — so you still see where
+  the robot was. (It also stops the panel from stalling for seconds on every refresh trying to grab a
+  stream that isn't there.)
+- **New: a big "Sleeping — tap to wake" button in the middle of the picture** on the robot page, so you
+  no longer have to enter fullscreen just to wake it. It disappears as soon as the robot is streaming.
+- The view now rebuilds when a robot falls asleep or wakes, so this appears/disappears on its own.
+
+
 ## 0.26.73 — sending the robot home now lets it sleep as soon as it arrives
 - When you press **Dock / return to base**, the add-on now **releases the session the moment the robot
   reaches the charger**, so it goes to sleep (ZZ) right away instead of sitting awake on the base
