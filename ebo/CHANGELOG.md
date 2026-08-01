@@ -1,5 +1,21 @@
 # Changelog — Enabot integration
 
+## 0.26.61 — MCP server for AI agents (opt-in, off by default)
+- The add-on can now expose the robot to **MCP-capable AI assistants**, with the camera **in the loop**:
+  the agent calls `ebo_look` (gets the live image), decides, then `ebo_move`. Tools: `ebo_list`,
+  `ebo_state`, `ebo_wake`, `ebo_look`, `ebo_move`, `ebo_stop`, `ebo_dock`, `ebo_night_vision`,
+  `ebo_laser`, `ebo_say`.
+- **Off by default.** New option **"Allow AI agents (MCP)"** — when off, the server never starts, so it
+  uses no resources. Turn it on only if you connect an agent.
+- **Token-protected:** the endpoint (`http://<HA-host>:8100/mcp`) requires
+  `Authorization: Bearer <api_token>` (the add-on's own token); unauthenticated requests get 401 —
+  verified.
+- **Safety by design:** `ebo_move` refuses to move unless `ebo_look` ran moments before (no blind
+  driving), caps speed/duration, and refuses while the robot is on its charging base.
+- Installing `fastmcp` is **non-fatal**: if it can't be installed, everything else works and the option
+  simply reports as unavailable.
+
+
 ## 0.26.60 — reliable camera.ebo snapshots (fixes intermittent 500)
 - `camera.ebo` still images no longer depend on Home Assistant extracting a keyframe from the internal
   RTSP itself — that default path returns **500** when it can't grab a frame in time (seen by tooling /
