@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.26.71 — fix the reconnect loop introduced in 0.26.70
+- 0.26.70 made the wake helper reconnect when no frames were flowing — but that helper is also called
+  from the connect path and from the "still waiting for the first frame" retry (every 8 s), so it
+  recursed: reconnect → wake → reconnect… roughly every 3 seconds, re-asking the cloud for a session
+  each time. Split in two: `_wake()` only sends the opcode (safe to repeat), while the full
+  cloud-backed wake runs **only** from the explicit `wake` command.
+- Added a **rate limit** on the forced rejoin (at most once every 15 s) so no future change can spin
+  that loop again.
+
+
 ## 0.26.70 — wake the robot from DEEP sleep (the "parked on the dock, ZZ eyes" one)
 - There are **two different sleeps**, and we only handled one:
   * **light standby** — we left the Agora channel (Standby button, or the robot dozed while we were

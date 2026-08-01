@@ -765,18 +765,24 @@ class Bridge:
                 self.stop.wait(8)
 
     def _wake(self):
-        """Wake the robot. Two different sleeps exist:
-          * light standby (we left the channel, or it dozed while we watched) -> a fresh viewer join
-            brings it back, and isSleeping=false nudges it;
-          * DEEP sleep (it drove home to the dock and shows the ZZ eyes) -> it has left Agora
-            altogether, so no opcode of ours can reach it. Only a fresh CLOUD session does, which is
-            what _force_rejoin() now asks for.
-        So: try the opcode, and if no frames are flowing, do the full cloud-backed rejoin too."""
+        """Nudge the robot awake (isSleeping=false, opcode 101047). Cheap and safe to repeat: this
+        is called from the connect path and from the 'waiting for frames' retry loop, so it must
+        NOT reconnect anything (that would recurse). The heavier, cloud-backed wake used for deep
+        sleep lives in _wake_full()."""
         try:
             self.send(OP_SLEEP, {"isSleeping": False})
             log("[wake] sent wake (isSleeping=false)")
         except Exception as e:
             log("[wake] failed:", e)
+
+    def _wake_full(self):
+        """User-initiated wake. Two different sleeps exist:
+          * light standby (we left the channel, or it dozed while we watched) -> a fresh viewer join
+            brings it back;
+          * DEEP sleep (it drove home to the dock and shows the ZZ eyes) -> it left Agora entirely,
+            so no opcode of ours reaches it; only a fresh CLOUD session does.
+        Only ever called from the explicit 'wake' command, never from the connect path."""
+        self._wake()
         try:
             if not self.connected:
                 self.set_connected(True)          # refreshes the cloud session on its own
@@ -815,6 +821,13 @@ class Bridge:
         """Leave and rejoin the Agora RTC channel: a fresh viewer join is what actually WAKES the
         robot from standby. Mirrors the app reconnecting when you reopen it. connect_agora() restarts
         the video feed on its own because video_on is True."""
+        # Rate-limit: a rejoin tears down and rebuilds the whole Agora session (and now asks the
+        # cloud for a fresh one). Video needs a few seconds to produce its first frame, so anything
+        # that retries on "not streaming yet" could otherwise spin here and hammer the cloud.
+        now = time.time()
+        if now - getattr(self, "_last_rejoin", 0) < 15:
+            return
+        self._last_rejoin = now
         log("[wake] robot not streaming — forcing a fresh RTC rejoin to wake it")
         # DEEP sleep (the robot parked itself on the dock and shows the ZZ eyes) is different from
         # the standby we trigger ourselves: the robot leaves Agora entirely and only keeps its link
@@ -1510,7 +1523,7 @@ class Bridge:
             elif topic.endswith("/sleep/set"):
                 self.send(OP_SLEEP, {"isSleeping": payload.lower() in ("on", "true", "1")})
             elif topic.endswith("/wake"):
-                self._wake()
+                self._wake_full()
             elif topic.endswith("/say"):
                 if payload:
                     self.send(OP_SAY, {"userId": self.account, "text": payload})
