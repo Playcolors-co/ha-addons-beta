@@ -1,5 +1,10 @@
 # Changelog — Enabot integration
 
+## 0.26.89 — fix the WHIP (talk) proxy path
+- The new microphone path was routed with the wrong prefix internally, so the request died before it
+  reached mediamtx and talk could never start. Fixed.
+
+
 ## 0.26.88 — talk to the robot with your phone's microphone, and see the audio levels
 - **New 🎤 button in the fullscreen view: two-way audio, like the official app.** Your browser publishes
   the microphone to the add-on over WebRTC (WHIP) and the bridge feeds it straight into the robot's

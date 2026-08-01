@@ -378,7 +378,7 @@ class Handler(BaseHTTPRequestHandler):
         """Forward a WHEP/WHIP SDP offer to the local mediamtx WebRTC endpoint and return its SDP
         answer. WHEP = we receive the robot's video; WHIP = we publish your microphone.
         Restricted to the WebRTC ports (8189-8192) so it can't be used as an open proxy."""
-        rest = raw_path.split("/%sp/" % ("whi" if kind == "whip" else "whe"), 1)[1]
+        rest = raw_path.split("/whipp/" if kind == "whip" else "/whepp/", 1)[1]
         port, _, sub = rest.partition("/")
         if not port.isdigit() or not (8189 <= int(port) <= 8192) or not sub:
             return self._send(400, b"", "text/plain")
