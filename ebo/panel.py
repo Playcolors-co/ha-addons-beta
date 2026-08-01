@@ -1107,18 +1107,15 @@ async function fsPlay(node){
   const gen=(v._gen=(v._gen||0)+1);
   const open=()=>document.getElementById('fs').style.display==='block' && v._gen===gen;
   _fsStatus('Connecting to the robot…');
-  // Off-LAN (cellular / remote access): the direct WebRTC UDP path can't be reached and there's no
-  // STUN/TURN, so trying it would only hang before falling back. Go STRAIGHT to the Ingress-proxied
-  // HLS (which works remotely). The status overlay clears once the video actually starts playing;
-  // hls.js self-heals the first few seconds while the robot wakes + publishes its first segment.
-  if(isLikelyRemote()){
-    _fsBadge('HLS · remote', 'hls');
-    console.log('[ebo] off-LAN → HLS diretto (WebRTC saltato)');
-    v.addEventListener('playing',()=>{ if(open()) _fsStatus(null); },{once:true});
-    hlsPlay(node);
-    return;
-  }
-  const deadline=Date.now()+20000;   // keep trying while the robot wakes + first frame arrives
+  // The URL only HINTS at where you are: opening HA through a domain (Cloudflare/Nabu Casa/reverse
+  // proxy) looks "remote" even when you're sitting on the same LAN as the robot — and then WebRTC
+  // would work fine. So we NEVER skip WebRTC: when the URL looks remote we just probe it BRIEFLY
+  // (a few seconds) and fall back to HLS if it can't connect. On the LAN (any URL) you still get the
+  // fluid ~200 ms video; truly off-LAN you lose only a few seconds before HLS takes over.
+  const maybeRemote=isLikelyRemote();
+  const deadline=Date.now()+(maybeRemote?6000:20000);
+  const connWait=maybeRemote?3500:6000;   // how long to wait for ICE per attempt
+  const maxIceFails=maybeRemote?1:2;
   let iceFails=0;
   while(open() && Date.now()<deadline){
     let pc;
@@ -1126,7 +1123,7 @@ async function fsPlay(node){
     catch(e){ if(!open()) return; await new Promise(r=>setTimeout(r,900)); continue; }  // not ready → retry
     if(!open()){ try{pc.close();}catch(e){} return; }
     v._pc=pc;
-    const st=await _waitConn(pc, 6000);
+    const st=await _waitConn(pc, connWait);
     if(!open()){ try{pc.close();}catch(e){} return; }
     if(st==='connected'){
       _fsStatus(null);                 // FLUID WebRTC is playing
@@ -1138,7 +1135,7 @@ async function fsPlay(node){
       return;
     }
     try{pc.close();}catch(e){} v._pc=null;
-    if(++iceFails>=2) break;          // answer OK but ICE won't connect → network issue → HLS
+    if(++iceFails>=maxIceFails) break;   // answer OK but ICE won't connect → network issue → HLS
     await new Promise(r=>setTimeout(r,600));
   }
   if(open()){ _fsStatus(null); _fsBadge('HLS · fallback', 'hls'); console.log('[ebo] WHEP unavailable → HLS fallback'); hlsPlay(node); }

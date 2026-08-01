@@ -1,5 +1,16 @@
 # Changelog — Enabot integration
 
+## 0.26.62 — fluid video also when you open HA by domain name on your own LAN
+- **Fixed:** the panel decided "you're remote" from the **URL alone**, so opening Home Assistant through
+  a domain (Cloudflare / Nabu Casa / reverse proxy) forced the slower **HLS even while you were on the
+  same network as the robot** — where WebRTC works perfectly.
+- Now the URL is only a **hint**: WebRTC is **always attempted**. When the URL looks remote it's probed
+  **briefly** (~4-6 s) and falls back to HLS if it truly can't connect. So: same LAN by any URL → fluid
+  ~200 ms video; genuinely off-LAN → a few seconds, then HLS as before.
+- This also helps **across subnets** (e.g. a guest/IoT VLAN): if routing allows it, WebRTC now connects
+  instead of being skipped outright.
+
+
 ## 0.26.61 — MCP server for AI agents (opt-in, off by default)
 - The add-on can now expose the robot to **MCP-capable AI assistants**, with the camera **in the loop**:
   the agent calls `ebo_look` (gets the live image), decides, then `ebo_move`. Tools: `ebo_list`,
