@@ -1,5 +1,16 @@
 # Changelog — Enabot integration
 
+## 0.26.67 — drop the deprecated build.yaml (Supervisor housekeeping)
+- The Supervisor now warns that **`build.yaml` is deprecated** ("move build parameters into the
+  Dockerfile"). Removed it: the base image and the image labels are declared **in the Dockerfile**.
+  The base stays a **Debian/glibc Python** on purpose — the Agora SDK ships glibc `.so` files and does
+  not run on the Alpine/musl bases — and a test now enforces that so it can't be changed by accident.
+- Fixed the stale image label (it still said "EBO Air 2" instead of the current add-on name).
+- Fixed two stale tests (a value map renamed back in 0.26.50, and the shipped-files list).
+- NOTE: nothing to do about the *"all_app_configs" folder mapping* rename you may see in other add-ons
+  — this add-on maps `homeassistant_config`, which is unaffected.
+
+
 ## 0.26.66 — CRITICAL: the robot no longer stays offline forever after a bridge crash
 - **Fixed a supervisor bug that made a crash permanent.** The entrypoint runs with `set -e`; when the
   bridge process died (e.g. a segfault inside the Agora SDK), `wait` returned non-zero and **killed the
