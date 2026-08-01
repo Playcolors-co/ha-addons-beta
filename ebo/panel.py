@@ -61,6 +61,37 @@ _robots = {}
 _lock = threading.Lock()
 _snap_cache = {}
 _snap_fail = {}      # node -> ts of the last failed grab (backoff while the robot sleeps)
+# Last good frame, also kept on disk: the panel restarts with the add-on (updates, crashes), and an
+# in-memory-only cache would leave you staring at a blank tile until the robot wakes up again.
+_SNAP_DIR = os.environ.get("EBO_SNAP_DIR", "/data")
+
+
+def _snap_path(node):
+    safe = "".join(c for c in str(node) if c.isalnum() or c in "-_")
+    return os.path.join(_SNAP_DIR, "last_frame_%s.jpg" % (safe or "ebo"))
+
+
+def _snap_load(node):
+    """Last frame from a previous run (so a restart doesn't blank the thumbnails)."""
+    try:
+        with open(_snap_path(node), "rb") as f:
+            data = f.read()
+        if data:
+            _snap_cache[node] = (0, data)      # ts=0: stale, so a live grab is always preferred
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def _snap_store(node, data):
+    try:
+        tmp = _snap_path(node) + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, _snap_path(node))
+    except Exception:
+        pass
 _snap_lock = {}
 _client = None
 
@@ -233,7 +264,7 @@ def _snapshot(node):
     # ffmpeg timeout on every refresh — which made the thumbnails go blank and the panel sluggish.
     # Serve the LAST frame we saw instead, so you still see where the robot is.
     if not url or asleep:
-        return cached
+        return cached or _snap_load(node)
     # Same when a grab just failed (stream still coming up): don't retry in a tight loop.
     if cached and now - _snap_fail.get(node, 0) < 5:
         return cached
@@ -257,13 +288,14 @@ def _snapshot(node):
         if out:
             _snap_cache[node] = (time.time(), out)
             _snap_fail.pop(node, None)
+            _snap_store(node, out)
             return out
         _snap_fail[node] = time.time()
     except Exception:
         _snap_fail[node] = time.time()
     finally:
         lock.release()
-    return cached
+    return cached or _snap_load(node)
 
 
 # --------------------------- HTTP: dashboard + tiny API ---------------------------

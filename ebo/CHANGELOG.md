@@ -1,5 +1,11 @@
 # Changelog — Enabot integration
 
+## 0.26.75 — the last frame now survives an add-on restart
+- 0.26.74 kept showing the last frame while the robot sleeps, but that cache lived only in memory —
+  so after an add-on update or restart the tile was blank again until the robot woke up. The last
+  frame is now **also stored on disk** and reloaded at startup.
+
+
 ## 0.26.74 — see the last frame while the robot sleeps, and wake it with one tap
 - **The picture no longer disappears when the robot is asleep (ZZ).** Both the robot list and the
   detail keep showing the **last frame we saw**, dimmed, with a **Zz** badge — so you still see where
