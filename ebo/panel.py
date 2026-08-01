@@ -608,6 +608,8 @@ input[type=range]{width:100%}
 }
 .fs-ic:active{transform:scale(.92)}.fs-ic.on{background:#2b6cff}
 .fs-ic.disabled{opacity:.35;pointer-events:none}
+.fs-ic.fail{background:#c0392b;animation:failshake .4s}
+@keyframes failshake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
 /* driving controls container (dual sticks or a single joystick, chosen in fullscreen Settings) */
 #fs-drive{position:absolute;inset:0;z-index:2;pointer-events:none}
 #fs-drive .stick,#fs-drive .joy{pointer-events:auto}
@@ -932,6 +934,10 @@ function _rtspPortOf(node){
   catch(e){ return 8554; }
 }
 function talking(){ return !!_talkPc; }
+function _talkFail(){            // flash the button so a failure is never silent
+  const b=document.getElementById('fs-talk'); if(!b) return;
+  b.classList.add('fail'); setTimeout(()=>b.classList.remove('fail'), 1600);
+}
 function updateTalkUI(){
   const b=document.getElementById('fs-talk'); if(!b) return;
   const on=talking();
@@ -945,7 +951,8 @@ async function toggleTalk(node){
   // Assistant over plain http://<ip>:8123 makes navigator.mediaDevices simply not exist — no prompt,
   // no permission to grant. Say so plainly instead of a vague "blocked".
   if(!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-    toast('Talk needs HTTPS: open Home Assistant over https:// (browsers block the microphone on plain http)');
+    toast('Talk needs HTTPS — open Home Assistant over https:// (on plain http the browser hides the microphone entirely)', 7000);
+    _talkFail();
     return;
   }
   let stream;
@@ -956,7 +963,8 @@ async function toggleTalk(node){
     const n=(e&&e.name)||'';
     toast(n==='NotAllowedError' ? 'Microphone permission denied — allow it for this site'
         : n==='NotFoundError'  ? 'No microphone found on this device'
-        : 'Microphone unavailable: '+(e&&e.message||n));
+        : 'Microphone unavailable: '+(e&&e.message||n), 6000);
+    _talkFail();
     return;
   }
   _talkStream = stream;
@@ -1066,11 +1074,17 @@ async function sleepRobot(node, btn){
   setTimeout(refresh, 2500);
 }
 // small transient message at the bottom of the panel
-function toast(msg){
+function toast(msg, ms){
+  // In native fullscreen the browser paints ONLY the fullscreen element's subtree, so a toast on
+  // <body> is invisible — which is exactly why the mic button looked like it "did nothing".
+  const fs = document.getElementById('fs');
+  const inFs = document.fullscreenElement || (fs && fs.style.display === 'block');
+  const host = document.fullscreenElement || (inFs ? fs : document.body);
   let t=document.getElementById('toast');
-  if(!t){ t=document.createElement('div'); t.id='toast'; document.body.appendChild(t); }
+  if(!t){ t=document.createElement('div'); t.id='toast'; }
+  if(t.parentNode!==host){ host.appendChild(t); }
   t.textContent=msg; t.className='show';
-  clearTimeout(t._h); t._h=setTimeout(()=>{ t.className=''; }, 4000);
+  clearTimeout(t._h); t._h=setTimeout(()=>{ t.className=''; }, ms||4500);
 }
 function replayRoute(node,name){ cmd(node,'patrol/route/set',name); setTimeout(()=>cmd(node,'patrol/start',''),350); }
 function delRoute(node,id){ if(confirm('Delete this route?')){ cmd(node,'route/delete',''+id); } }
@@ -1204,12 +1218,12 @@ function fsTop(node){
       <span class="vu mic" id="vu-mic" title="Your microphone (what the robot hears)">🎤<span class="bar"><i></i><span class="pk"></span></span></span>
     </div>
     <div class="fs-actions">
-      <button class="fs-ic ${laserOn?'on':''}" id="fs-laser" onclick="toggleLaser('${node}')" title="Laser">•</button>
+      <button class="fs-ic ${laserOn?'on':''}" id="fs-laser" onclick="toggleLaser('${node}')" title="Laser pointer (play with the cat)">🎯</button>
       <button class="fs-ic" id="fs-night" onclick="cycleNight('${node}')" title="Day/Night vision">${NV_ICON[st.night_vision]||'🌗'}</button>
       <button class="fs-ic" id="fs-listen" onclick="toggleListen('${node}')" title="Listen to the robot">🔇</button>
       <button class="fs-ic" id="fs-talk" onclick="toggleTalk('${node}')" title="Talk to the robot (hold a conversation)">🎤</button>
       ${st.routes_supported==='true' ? `<button class="fs-ic ${st.route_recording==='true'?'rec':''}" id="fs-rec" onclick="recordRoute('${node}')" title="Record a route (drive to teach a path)">⏺</button>` : ''}
-      <button class="fs-ic" onclick="cmd('${node}','dock','')" title="Return to base">⌂</button>
+      <button class="fs-ic" onclick="cmd('${node}','dock','')" title="Send it back to the charging base">🔌</button>
       <button class="fs-ic" onclick="openFsSettings()" title="Settings">⚙</button>
     </div>`;
 }

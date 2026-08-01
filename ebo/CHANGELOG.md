@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.26.95 — the Talk button now tells you why it failed, and clearer icons
+- **Fixed the real reason Talk looked dead**: in native fullscreen the browser paints *only* the
+  fullscreen element, so the explanation message was being drawn behind it and nobody ever saw it.
+  Messages now appear inside the fullscreen view — and a failed attempt also **flashes the button red**,
+  so it can never fail silently again.
+- Clearer icons in the fullscreen bar: the laser is now a **🎯** (was an anonymous dot) and returning
+  to the charger is a **🔌** (was a bare house outline), both with plain-language tooltips.
+
+
 ## 0.26.94 — fullscreen controls fit a phone held sideways, and Talk explains itself
 - **Layout**: the fullscreen bar was sized for a desktop window, so on a phone (especially in
   landscape, where there is very little height) the buttons crowded each other and the picture. The
