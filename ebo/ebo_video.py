@@ -312,7 +312,9 @@ class VideoPipeline(IVideoFrameObserver):
                 now = time.time()
                 if self._src_t0 == 0.0:
                     self._src_t0 = now
-                elif now - self._src_t0 >= 5.0:
+                elif now - self._src_t0 >= 30.0:
+                    # every 30 s, not every 5: at 5 s this one line drowned out everything else in
+                    # the add-on log (audio diagnostics especially) within a couple of minutes.
                     log("[video] source ~%.1f fps, encoded ~%.1f fps, %d dropped (encoder behind)"
                         % (self._src_count / (now - self._src_t0),
                            self._enc_count / (now - self._src_t0), self._dropped))

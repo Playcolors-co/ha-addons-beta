@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.26.80 — audio investigation: more codec options, quieter log
+- The robot's audio subscription reaches state **SUBSCRIBED**, not "no publisher" — which suggests the
+  robot *does* publish a mic track and we simply fail to DECODE it, rather than the mic being muted.
+- So the **audio codec** option now also accepts **`0`** (G.711 μ-law — never tried; only 8/A-law and
+  9/G.722 were selectable) and **`auto`** (force nothing and let the SDK negotiate — forcing the wrong
+  payload type looks exactly like a muted mic).
+- The video statistics line now logs **every 30 s instead of every 5 s**: it was flooding the add-on
+  log and pushing the audio diagnostics out of the buffer within minutes.
+
+
 ## 0.26.79 — the sharper drive video now actually kicks in (fix for 0.26.78)
 - 0.26.78 chose the quality from the **URL** (the "are we remote?" guess). If you open Home Assistant
   through your own domain — even while sitting on the same LAN — that guess says "remote", so it kept

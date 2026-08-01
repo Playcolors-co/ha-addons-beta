@@ -331,14 +331,21 @@ class Bridge:
         # server SDK's global handle is service.get_agora_parameter(). Set them here, pre-join.
         if self.audio_enabled:
             try:
-                pt = int(os.environ.get("EBO_AUDIO_PT", "8"))
+                # "auto" = don't force a payload type at all and let the SDK negotiate. Worth trying:
+                # forcing the WRONG type is indistinguishable from "the mic is muted" (subscribed, but
+                # nothing decodes). Payload types: 0 = G.711 u-law, 8 = G.711 A-law, 9 = G.722.
+                pt_opt = (os.environ.get("EBO_AUDIO_PT", "8") or "8").strip().lower()
                 gp = svc.get_agora_parameter()
-                for kv in ('{"che.audio.codec_unfallback":[0,8,9]}',
-                           '{"che.audio.custom_payload_type":%d}' % pt,
-                           '{"che.audio.aec.enable":false}'):
+                params = ['{"che.audio.codec_unfallback":[0,8,9]}', '{"che.audio.aec.enable":false}']
+                if pt_opt not in ("auto", ""):
+                    pt = int(pt_opt)
+                    params.insert(1, '{"che.audio.custom_payload_type":%d}' % pt)
+                else:
+                    pt = "auto"
+                for kv in params:
                     gp.set_parameters(kv)
                 log("[audio] codec params set on ENGINE before join "
-                    "(codec_unfallback [0,8,9], payload_type %d)" % pt)
+                    "(codec_unfallback [0,8,9], payload_type %s)" % pt)
             except Exception as e:
                 log("[audio] global set_parameters failed:", e)
         # Decoded video path: auto-subscribe so the SDK DECODES the robot's H.265 to raw YUV
@@ -385,11 +392,12 @@ class Bridge:
         # if the global pre-join set already took).
         if self.audio_enabled:
             try:
-                pt = int(os.environ.get("EBO_AUDIO_PT", "8"))
+                pt_opt = (os.environ.get("EBO_AUDIO_PT", "8") or "8").strip().lower()
                 cp = self.rtc.get_agora_parameter()
                 cp.set_parameters('{"che.audio.codec_unfallback":[0,8,9]}')
-                cp.set_parameters('{"che.audio.custom_payload_type":%d}' % pt)
-                log("[audio] codec params also set on connection after connect (pt=%d)" % pt)
+                if pt_opt not in ("auto", ""):
+                    cp.set_parameters('{"che.audio.custom_payload_type":%d}' % int(pt_opt))
+                log("[audio] codec params also set on connection after connect (pt=%s)" % pt_opt)
             except Exception as e:
                 log("[audio] connection set_parameters failed:", e)
 
