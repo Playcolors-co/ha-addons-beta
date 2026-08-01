@@ -863,15 +863,24 @@ async function wakeRobot(node, btn){
   await cmd(node,'camera/set','on');
   setTimeout(refresh, 2500);      // the robot needs a moment to come back and start streaming
 }
-// Listen = open/close the robot's microphone. Subscribing alone is not enough: the robot only
-// publishes its mic once told to (opcode 102001) — this is that switch.
+// Hearing the robot needs BOTH halves: the robot must publish its mic (opcode 102001 — subscribing
+// alone gets you a silent track) AND the <video> must be unmuted. Browsers force muted autoplay, so
+// the player always starts silent; only a real tap may unmute it. This one button does both.
+function hearingRobot(){ const v=document.getElementById('fsvid'); return !!(v && !v.muted); }
+function updateListenUI(){
+  const b=document.getElementById('fs-listen'); if(!b) return;
+  const on=hearingRobot();
+  b.textContent = on?'🔊':'🔇';
+  b.className = 'fs-ic'+(on?' on':'');
+  b.title = on ? 'Listening to the robot — tap to mute' : 'Listen to the robot';
+}
 async function toggleListen(node){
-  const r=ROBOTS.find(x=>x.node===node)||{}, st=r.state||{};
-  const on = !(st.listen!=='false');
-  const b=document.getElementById('fs-listen');
-  if(b){ b.textContent = on?'🔊':'🔇'; b.className='fs-ic'+(on?' on':''); }
-  toast(on?'Listening to the robot — unmute the video to hear it':'Microphone closed');
-  await cmd(node,'listen/set', on?'on':'off');
+  const want = !hearingRobot();
+  const v=document.getElementById('fsvid');
+  if(v){ v.muted = !want; if(want){ v.volume = 1; v.play().catch(()=>{}); } }
+  updateListenUI();
+  toast(want ? 'Listening to the robot' : 'Muted');
+  await cmd(node,'listen/set', want?'on':'off');
 }
 // Put the robot to sleep on demand (ZZ): leaving the session is exactly what makes it doze off,
 // same as closing the official app.
@@ -1025,7 +1034,7 @@ function fsTop(node){
     <div class="fs-actions">
       <button class="fs-ic ${laserOn?'on':''}" id="fs-laser" onclick="toggleLaser('${node}')" title="Laser">•</button>
       <button class="fs-ic" id="fs-night" onclick="cycleNight('${node}')" title="Day/Night vision">${NV_ICON[st.night_vision]||'🌗'}</button>
-      <button class="fs-ic ${st.listen!=='false'?'on':''}" id="fs-listen" onclick="toggleListen('${node}')" title="Listen (robot microphone)">${st.listen!=='false'?'🔊':'🔇'}</button>
+      <button class="fs-ic" id="fs-listen" onclick="toggleListen('${node}')" title="Listen to the robot">🔇</button>
       ${st.routes_supported==='true' ? `<button class="fs-ic ${st.route_recording==='true'?'rec':''}" id="fs-rec" onclick="recordRoute('${node}')" title="Record a route (drive to teach a path)">⏺</button>` : ''}
       <button class="fs-ic" onclick="cmd('${node}','dock','')" title="Return to base">⌂</button>
       <button class="fs-ic" onclick="openFsSettings()" title="Settings">⚙</button>
@@ -1338,6 +1347,7 @@ function enterFS(node){
   const hw=document.getElementById('fs-hlswarn');   // re-arm the brief HLS notice for this session
   if(hw){ hw.dataset.shown=''; hw.style.display='none'; hw.classList.remove('fade'); }
   document.getElementById('fs-top').innerHTML=fsTop(node);
+  updateListenUI();
   renderFsControls(node);          // dual sticks or single joystick, per the saved preference
   const v=document.getElementById('fsvid');
   v.setAttribute('data-node',node);                 // keyboard driving reads the node from here

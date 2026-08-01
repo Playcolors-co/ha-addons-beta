@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.26.84 — you can now actually HEAR the robot in the drive view
+- The microphone audio was reaching Home Assistant, but the fullscreen player is created **muted** —
+  browsers only allow autoplay when a video starts muted, and nothing ever unmuted it. So there was
+  simply no sound to hear.
+- The **🔊 button now does both halves**: it opens the robot's microphone (opcode 102001) *and*
+  unmutes the player (a real tap is required by the browser, which is exactly what this is). Tap again
+  to mute and close the mic. The icon shows whether you're currently hearing the robot.
+
+
 ## 0.26.83 — fix: raw HTML appearing in the robot list
 - After a few seconds the robot list showed the battery/Wi-Fi gauges as **raw markup** instead of the
   little bar icons. The periodic refresh was still writing that line as plain *text*, while 0.26.77
