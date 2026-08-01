@@ -1,5 +1,13 @@
 # Changelog — Enabot integration
 
+## 0.26.87 — fix: the picture froze after audio was added (and made the robot look unresponsive)
+- Adding the Opus audio track broke the **snapshot grabber**: it probed only **32 bytes** of the stream
+  (a latency trick) which was no longer enough for ffmpeg to identify the streams, so **every grab
+  failed** and the panel kept serving one frozen frame. Driving still worked, but nothing on screen
+  moved — so it looked like the robot had stopped responding to commands.
+- The grabber now probes a sensible amount and takes **video only** (`-an -map 0:v:0`).
+
+
 ## 0.26.86 — the robot's audio is no longer seconds behind
 - Now that you can hear the microphone, it arrived **badly delayed**. The video path drops stale frames
   to bound latency; the audio path had **no such control** and simply queued up:

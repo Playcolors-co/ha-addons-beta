@@ -281,9 +281,14 @@ def _snapshot(node):
         internal = "rtsp://127.0.0.1:%s%s" % (p.port or 8554, p.path)
         # grab the FRESHEST frame with minimal buffering: no probe/analyze delay, no jitter buffer.
         out = subprocess.run(
+            # NOTE: probesize used to be 32 bytes for minimum latency. That silently broke every
+            # grab as soon as the stream also carried an Opus audio track — ffmpeg could no longer
+            # identify the streams, so the panel kept showing one frozen frame (and it looked like
+            # the robot had stopped responding). Probe a little more, and take video only.
             ["ffmpeg", "-nostdin", "-fflags", "nobuffer", "-flags", "low_delay",
-             "-probesize", "32", "-analyzeduration", "0", "-rtsp_transport", "tcp",
-             "-i", internal, "-frames:v", "1", "-q:v", "6", "-f", "mjpeg", "pipe:1"],
+             "-probesize", "200k", "-analyzeduration", "300000", "-rtsp_transport", "tcp",
+             "-i", internal, "-an", "-map", "0:v:0",
+             "-frames:v", "1", "-q:v", "6", "-f", "mjpeg", "pipe:1"],
             capture_output=True, timeout=5).stdout
         if out:
             _snap_cache[node] = (time.time(), out)
