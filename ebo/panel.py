@@ -612,6 +612,10 @@ input[type=range]{width:100%}
 .wakebtn .tx{font-size:12px;opacity:.9}
 .wakebtn:active{transform:translate(-50%,-50%) scale(.95)}
 .wakebtn.busy{opacity:.6;pointer-events:none}
+.sleepbtn{position:absolute;left:10px;bottom:20px;z-index:2;border:0;cursor:pointer;color:#fff;
+  background:rgba(20,24,28,.72);backdrop-filter:blur(4px);font-size:12px;padding:5px 10px;border-radius:10px}
+.sleepbtn:active{transform:scale(.95)}
+.sleepbtn.busy{opacity:.6;pointer-events:none}
 .thumbwrap{position:relative}
 .zzbadge{position:absolute;top:6px;right:6px;background:#0009;color:#cfe;font-size:11px;
   padding:2px 6px;border-radius:8px;pointer-events:none}
@@ -812,6 +816,13 @@ async function wakeRobot(node, btn){
   await cmd(node,'camera/set','on');
   setTimeout(refresh, 2500);      // the robot needs a moment to come back and start streaming
 }
+// Put the robot to sleep on demand (ZZ): leaving the session is exactly what makes it doze off,
+// same as closing the official app.
+async function sleepRobot(node, btn){
+  if(btn){ btn.classList.add('busy'); btn.textContent='Sleeping…'; }
+  await cmd(node,'connected/set','off');
+  setTimeout(refresh, 1500);
+}
 function replayRoute(node,name){ cmd(node,'patrol/route/set',name); setTimeout(()=>cmd(node,'patrol/start',''),350); }
 function delRoute(node,id){ if(confirm('Delete this route?')){ cmd(node,'route/delete',''+id); } }
 // recording state (optimistic, like the laser)
@@ -841,7 +852,10 @@ function saveRoute(){ const i=document.getElementById('rs-name'); const name=(i&
 // Enter detail/drive → camera/set on. Bridge-side this JOINS the Agora RTC channel, which WAKES
 // the robot exactly like opening the app (real viewer present). goBack → connected/set off leaves
 // the channel so the robot goes back to standby (ZZ). No unreliable isSleeping opcode dance.
-function openRobot(n){ SEL=n; render(true); bg(n,'camera/set','on'); }   // join RTC = wake (like the app)
+// Just LOOKING at a robot must not wake it — otherwise it can never stay asleep while you check on
+// it, and the "tap to wake" button would never appear. You wake it deliberately (that button, the
+// Wake button, or by entering the drive view).
+function openRobot(n){ SEL=n; render(true); }
 function goBack(){ const p=SEL; SEL=null; render(true); if(p) bg(p,'connected/set','off'); }  // leave = standby
 function driveNow(n){ SEL=n; render(true); bg(n,'camera/set','on'); setTimeout(()=>enterFS(n),60); }
 
@@ -1325,7 +1339,8 @@ function detailView(r){
   return `<div class="detail">
     <div class="bigwrap ${cam?'':'asleep'}" onclick="enterFS('${r.node}')" title="Tap for fullscreen">
       <img class="big prev" data-node="${r.node}" src="${B}/api/snapshot?node=${encodeURIComponent(r.node)}&t=${Date.now()}" onerror="this.style.opacity=.25">
-      ${cam ? '<span class="fshint">⛶ tap for fullscreen</span>' : `
+      ${cam ? `<span class="fshint">⛶ tap for fullscreen</span>
+      <button class="sleepbtn" title="Send the robot to sleep (Zz)" onclick="event.stopPropagation();sleepRobot('${r.node}',this)">😴 Sleep</button>` : `
       <button class="wakebtn" title="Wake the robot" onclick="event.stopPropagation();wakeRobot('${r.node}',this)">
         <span class="ic">☀</span><span class="tx">Sleeping — tap to wake</span></button>`}
     </div>
@@ -1335,8 +1350,8 @@ function detailView(r){
     <div id="d-conn" class="${connHintClass()}">${connHint()}</div>
     <div class="row">
       <button id="d-cam" class="btn ${cam?'pri':''}" onclick="cmd('${r.node}','camera/set','${cam?'off':'on'}')">${cam?'Camera ON':'Camera OFF'}</button>
-      <button class="btn" onclick="cmd('${r.node}','camera/set','on')">☀ Wake</button>
-      <button class="btn" onclick="cmd('${r.node}','connected/set','off')">🌙 Standby</button>
+      <button class="btn" onclick="wakeRobot('${r.node}')">☀ Wake</button>
+      <button class="btn" onclick="sleepRobot('${r.node}')">😴 Sleep (Zz)</button>
       <button id="d-laser" class="btn ${st.laser==='true'?'pri':''}" onclick="toggleLaser('${r.node}')">Laser ${st.laser==='true'?'ON':'OFF'}</button>
       <button class="btn" onclick="cmd('${r.node}','dock','')">Dock</button>
     </div>

@@ -1,5 +1,14 @@
 # Changelog — Enabot integration
 
+## 0.26.76 — looking at a robot no longer wakes it, and you can send it to sleep with one tap
+- **Fixed: opening a robot woke it up by itself.** The panel sent `camera/set on` as soon as you opened
+  the robot page, so it could never stay asleep while you just checked on it — and the new "tap to
+  wake" button never had a chance to appear. Now **looking is passive**: you wake it deliberately
+  (the button on the picture, **☀ Wake**, or by entering the drive view).
+- **New: send it to sleep on demand** — a **😴 Sleep** button on the picture (bottom-left) while the
+  robot is awake, and the row button is now clearly labelled **😴 Sleep (Zz)** instead of "Standby".
+
+
 ## 0.26.75 — the last frame now survives an add-on restart
 - 0.26.74 kept showing the last frame while the robot sleeps, but that cache lived only in memory —
   so after an add-on update or restart the tile was blank again until the robot woke up. The last
