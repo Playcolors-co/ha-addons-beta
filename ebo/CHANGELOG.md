@@ -1,5 +1,17 @@
 # Changelog — Enabot integration
 
+## 0.26.66 — CRITICAL: the robot no longer stays offline forever after a bridge crash
+- **Fixed a supervisor bug that made a crash permanent.** The entrypoint runs with `set -e`; when the
+  bridge process died (e.g. a segfault inside the Agora SDK), `wait` returned non-zero and **killed the
+  very subshell whose job was to restart it**. The add-on still looked healthy — the container stayed
+  "started" and the panel kept responding — but the robot showed **offline (red dot) forever** and no
+  command reached it until you restarted the add-on by hand.
+- All the supervisor `wait` calls are now failure-tolerant, so a crashing bridge is **restarted** as
+  intended (with the existing back-off and the A/V fallback).
+- Note: this was **not** caused by the MCP server — memory was at 1.8% and the MCP runs in its own
+  process. The crash came from the video/Agora side; what was broken was the recovery.
+
+
 ## 0.26.65 — settings no longer get wiped, and the panel works for non-admin users
 - **Fixed: options could be silently reset.** When the add-on persisted its auto-generated `api_token`
   back to the Supervisor, it sent only the login fields — and the Supervisor **replaces the whole

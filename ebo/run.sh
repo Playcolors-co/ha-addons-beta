@@ -232,7 +232,12 @@ run_robot() {
       fi
       exec python /app/ebo_bridge.py
     ) &
-    wait $!; local rc=$?
+    # NOTE: the script runs with `set -e`. A crashing bridge makes `wait` return non-zero, which
+    # would kill THIS supervising subshell — leaving the robot permanently offline while the panel
+    # kept running (the container stays "started", so nothing looks broken). `|| rc=$?` keeps the
+    # supervisor alive so the bridge is actually restarted, which is the whole point of this loop.
+    local rc=0
+    wait $! || rc=$?
     [ "$stopping" -eq 1 ] && break
     local ran=$(( $(date +%s) - start ))
     if [ "$ran" -lt 60 ] && { [ "$rc" -ge 128 ] || [ "$rc" -ne 0 ]; }; then
@@ -245,7 +250,7 @@ run_robot() {
       v=0; a=0; crashes=0
     fi
     echo "[add-on] bridge (${id:-single}) exited (rc=${rc}), restarting in 15s…"
-    sleep 15 & wait $!
+    sleep 15 & wait $! || true
   done
 }
 
@@ -271,4 +276,4 @@ fi
 for i in "${!RIDS[@]}"; do
   run_robot "${RIDS[$i]}" "$i" "${RNAMES[$i]}" &
 done
-wait
+wait || true   # never let a crashing child kill the supervisor under `set -e`
