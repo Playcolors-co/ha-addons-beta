@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.26.94 — fullscreen controls fit a phone held sideways, and Talk explains itself
+- **Layout**: the fullscreen bar was sized for a desktop window, so on a phone (especially in
+  landscape, where there is very little height) the buttons crowded each other and the picture. The
+  bar and its buttons now shrink on short/narrow screens and stay on one line.
+- **Talk**: the button used to fail with a vague "microphone blocked". Browsers only give access to
+  the microphone in a **secure context**, so opening Home Assistant over plain `http://<ip>:8123`
+  makes it impossible — there isn't even a permission prompt. The panel now says exactly that, and
+  distinguishes "permission denied" from "no microphone" from "needs HTTPS".
+
+
 ## 0.26.93 — a short demo clip in the README
 - Added an animated demo of the robot being driven from a phone, next to the feature list, so the
   project shows what it does in the first two seconds. (Trimmed and optimised to ~3 MB.)
