@@ -769,6 +769,27 @@ class Bridge:
             else:
                 self.stop.wait(8)
 
+    def _check_sleep_on_dock(self):
+        """After a 'dock' command: as soon as the robot is actually on the charger, leave the
+        session so it can go to sleep (ZZ). Sending it home means you're done with it — otherwise
+        our presence would keep it awake on the base. Disabled when auto-standby is off (0), and it
+        gives up after 10 minutes in case the docking never completed."""
+        started = getattr(self, "_sleep_on_dock", 0)
+        if not started or STANDBY_TIMEOUT <= 0 or not self.connected:
+            return
+        if time.time() - started > 600:            # docking didn't finish — stop waiting
+            self._sleep_on_dock = 0
+            return
+        b = (self.telemetry or {}).get("battery") or {}
+        on_charger = b.get("adapterStatus", -1) != -1 or bool(b.get("chargeStatus"))
+        if on_charger:
+            self._sleep_on_dock = 0
+            log("[dock] robot is on the charger — releasing the session so it can sleep")
+            try:
+                self.set_connected(False)
+            except Exception as e:
+                log("[dock] releasing the session failed:", e)
+
     def _wake(self):
         """Nudge the robot awake (isSleeping=false, opcode 101047). Cheap and safe to repeat: this
         is called from the connect path and from the 'waiting for frames' retry loop, so it must
@@ -1017,6 +1038,7 @@ class Bridge:
         if mid == OP_TELEMETRY:
             self.telemetry = data
             self._publish_telemetry()
+            self._check_sleep_on_dock()
         elif mid == OP_SETTINGS:
             # MERGE (not replace): the robot's settings report omits some write-only fields
             # (imageStyle, callAutoRecording — confirmed absent live), so we keep the values we
@@ -1535,6 +1557,10 @@ class Bridge:
         # Any command from you counts as "someone is using the robot" and postpones auto-standby.
         # (Driving in fullscreen re-asserts camera/on every ~20 s, so it stays awake while you drive.)
         self._last_activity = time.time()
+        # If you take control back by driving, cancel the "sleep once docked" intent.
+        if ("/move" in topic or topic.endswith("/joystick")) and getattr(self, "_sleep_on_dock", 0):
+            self._sleep_on_dock = 0
+            log("[dock] driving again — cancelling the sleep-on-dock")
         try:
             if topic.endswith("/laser/set"):
                 self.send(OP_LASER, {"laser": payload.lower() in ("on", "true", "1")})
@@ -1592,6 +1618,12 @@ class Bridge:
             elif topic.endswith("/dock"):
                 # start returning to the charging base (no-op if already charging)
                 self.send(OP_DOCK, {"startUp": True})
+                # …and let it fall asleep as soon as it actually gets there: sending it home means
+                # you're done with it, so we leave the session once the charger reports contact
+                # (see _check_sleep_on_dock). The window guards against sleeping much later because
+                # of a dock command that never completed.
+                self._sleep_on_dock = time.time()
+                log("[dock] returning to base — will release the session once it's charging")
             elif topic.endswith("/patrol/route/set"):
                 self.patrol_choice = payload
                 self.mqtt.publish("%s/patrol/route" % NODE, payload, retain=True)

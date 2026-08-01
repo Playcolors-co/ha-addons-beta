@@ -1,5 +1,15 @@
 # Changelog — Enabot integration
 
+## 0.26.73 — sending the robot home now lets it sleep as soon as it arrives
+- When you press **Dock / return to base**, the add-on now **releases the session the moment the robot
+  reaches the charger**, so it goes to sleep (ZZ) right away instead of sitting awake on the base
+  because we were still "watching". Sending it home means you're done with it.
+- If you **drive again** after issuing dock, the pending sleep-on-dock is cancelled — you took control
+  back. It also gives up after 10 minutes if the docking never completes.
+- Follows the same option as auto-standby: with **"Let the robot sleep after (minutes)" = 0** (never
+  sleep) this is disabled too.
+
+
 ## 0.26.72 — the robot can finally fall asleep again (auto-standby)
 - **The add-on kept the robot permanently awake.** The robot only sleeps when nobody is watching, and
   the bridge stayed in its Agora session for as long as the add-on ran — so it never showed the **ZZ
