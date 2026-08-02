@@ -1,5 +1,20 @@
 # Changelog — Enabot integration
 
+## 0.26.96 — the test suite tells the truth again
+- A full review before this release turned up that **6 tests had been failing silently**, and not
+  because of a real defect:
+  - the end-to-end test drove the *real* send path, which became **asynchronous** when commands moved
+    to a single sender thread — the test never flushed the queue, so it saw nothing on the wire. The
+    fixture now drains it explicitly;
+  - five expectations still used **old names** from earlier renames (`shoot_mode` → `night_vision`,
+    "Mode 2" → "Racing", "Clock" → "Clock 1"), and the eyes command sends a richer payload than a
+    plain equality check allows — it now has its own test asserting the parts that matter.
+- Everything else in the review came back clean: all modules compile, YAML and translations parse,
+  the panel's JavaScript is syntactically valid, versions match across `config.yaml`/`VERSION.txt`,
+  no app keys anywhere in the tree, safe defaults (MCP off, standby 5 min, log level info), and every
+  command the panel can send is both handled and subscribed by the bridge.
+
+
 ## 0.26.95 — the Talk button now tells you why it failed, and clearer icons
 - **Fixed the real reason Talk looked dead**: in native fullscreen the browser paints *only* the
   fullscreen element, so the explanation message was being drawn behind it and nobody ever saw it.
