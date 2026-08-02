@@ -1,5 +1,25 @@
 # Changelog — Enabot integration
 
+## 0.26.98 — Home Assistant entities: peer review and hardening
+- **No more "unknown" selects.** *Image style* and *Eyes* are write-only on the robot (it never
+  reports them back), so they showed as unknown after every restart. The add-on now remembers what
+  you last chose and reports it, so both selects show the real value.
+- **"Docked" no longer contradicts "Charging".** Docked was derived from a single field the robot
+  doesn't always fill in; it now also trusts the charge status, the way the auto-sleep logic already did.
+- **Wi-Fi signal is a real measurement.** It was a bare number with no unit; it now has dBm and a
+  signal-strength device class, so Home Assistant graphs it and keeps its history. Battery gained
+  long-term statistics for the same reason.
+- **Entities go unavailable when the add-on does.** They used to keep showing the last known value
+  even while the add-on was unreachable — only *Online* stays available now, so it can report offline.
+- **A failed command is reported as failed.** Commands that the add-on refused (or never received)
+  were logged and forgotten, so a toggle would flip while nothing happened. They now raise a visible
+  error in Home Assistant.
+- **New entities:** *Speaker volume* (the second volume, previously only in the panel) and *Docked*.
+- Settings (volumes, image style, eyes, driving mode, collision avoidance) moved to the device's
+  **Configuration** section, so the main controls list is the things you actually use while driving.
+- The device now shows its **firmware version and serial number**, and the camera shares the exact
+  same device record as the other entities.
+
 ## 0.26.97 — smooth video on the robot page, and it asks before downgrading
 - **The robot page now shows the same live stream as the drive view.** It used to refresh snapshots,
   which looked like a slideshow; it now plays the real WebRTC video, so the picture is as smooth as in
