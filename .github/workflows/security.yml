@@ -17,7 +17,7 @@ jobs:
         run: ruff check .
       - name: Security SAST (bandit, medium+)
         working-directory: ebo
-        run: bandit -r . -c .bandit -ll
+        run: bandit -r . --ini .bandit -ll
       - name: Dependency CVE audit (pip-audit)
         working-directory: ebo
         run: pip-audit -r tests/requirements-runtime.txt
