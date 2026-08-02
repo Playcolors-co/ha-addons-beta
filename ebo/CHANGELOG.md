@@ -1,5 +1,17 @@
 # Changelog — Enabot integration
 
+## 0.26.97 — smooth video on the robot page, and it asks before downgrading
+- **The robot page now shows the same live stream as the drive view.** It used to refresh snapshots,
+  which looked like a slideshow; it now plays the real WebRTC video, so the picture is as smooth as in
+  fullscreen. While the robot sleeps nothing is played and the last frame + wake button stay as they
+  were. (The snapshot refresh also stops while the live video covers it — each one cost an ffmpeg grab.)
+- **It asks before falling back to HLS.** On a cold start the robot needs a few seconds to publish its
+  camera, and the panel used to give up and switch to the slower HLS **even on the LAN**. Now, when the
+  fluid path doesn't come up, you get a choice: **Keep trying** or **Use HLS**. From remote — where
+  WebRTC genuinely can't work — it still switches by itself without bothering you.
+- The robot page's connection line now says which path is actually in use.
+
+
 ## 0.26.96 — the test suite tells the truth again
 - A full review before this release turned up that **6 tests had been failing silently**, and not
   because of a real defect:

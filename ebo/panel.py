@@ -640,6 +640,13 @@ input[type=range]{width:100%}
 .ic:hover{background:#0001}
 @media(prefers-color-scheme:dark){.ic:hover{background:#ffffff14}}
 .bigwrap{position:relative;cursor:pointer}
+/* the robot page shows the SAME live stream as the drive view — snapshots were choppy */
+.big.live{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.askhls{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:12px;background:rgba(10,12,14,.82);backdrop-filter:blur(3px);
+  color:#fff;text-align:center;padding:16px}
+.askhls .m{font-size:13px;line-height:1.4;max-width:320px}
+.askhls .r{display:flex;gap:8px}
 .fshint{position:absolute;right:10px;bottom:20px;background:#0008;color:#fff;font-size:11px;padding:3px 8px;border-radius:8px;pointer-events:none}
 /* sleeping (ZZ): keep showing the last frame, dimmed, with a big wake button over it */
 .bigwrap.asleep .big{filter:grayscale(.6) brightness(.45)}
@@ -894,6 +901,32 @@ function routesHtml(r){
       <button class="btn" onclick="delRoute('${r.node}',${rt.id})" title="Delete route">🗑</button></div>`;
   }).join('')+'</div>';
 }
+// Live video on the robot page. It reuses the very same player as the drive view, so the picture is
+// as smooth there as it is in fullscreen (it used to be a slideshow of snapshots). While the robot
+// sleeps there's nothing to play, so the last frame + the wake button stay visible.
+function startDetailVideo(r){
+  const v=document.getElementById('dvid');
+  if(!v) return;
+  stopDetailVideo();
+  if(!r || r.camera!=='on') return;
+  v.style.display='';
+  playLive(v, r.node, {
+    open: ()=>!!document.getElementById('dvid') && SEL===r.node,
+    host: v.parentNode,
+    ask: true,                       // same courtesy as fullscreen: ask before downgrading
+    badge: (txt,kind)=>{             // reuse the detail hint line to show which path is in use
+      const e=document.getElementById('d-conn');
+      if(e){ e.className='connhint'+(kind==='hls'?' hls':'');
+             e.innerHTML = kind==='hls' ? '🔗 '+txt+' — video is delayed (~1&nbsp;s)'
+                                        : '🔗 Live video · <b>WebRTC</b> (fluid)'; }
+    },
+  });
+}
+function stopDetailVideo(){
+  const v=document.getElementById('dvid');
+  if(v){ _cleanupVid(v); v.style.display='none'; }
+}
+
 // Wake the robot straight from the detail view (no need to enter fullscreen just to wake it).
 // camera/set on is the reliable wake: it re-joins the robot's session with a fresh cloud session.
 async function wakeRobot(node, btn){
@@ -1119,7 +1152,7 @@ function saveRoute(){ const i=document.getElementById('rs-name'); const name=(i&
 // it, and the "tap to wake" button would never appear. You wake it deliberately (that button, the
 // Wake button, or by entering the drive view).
 function openRobot(n){ SEL=n; render(true); }
-function goBack(){ const p=SEL; SEL=null; render(true); if(p) bg(p,'connected/set','off'); }  // leave = standby
+function goBack(){ stopDetailVideo(); const p=SEL; SEL=null; render(true); if(p) bg(p,'connected/set','off'); }  // leave = standby
 function driveNow(n){ SEL=n; render(true); bg(n,'camera/set','on'); setTimeout(()=>enterFS(n),60); }
 
 // --- driving: hold direction(s) to move, release to stop. MULTIPLE directions COMBINE into one
@@ -1395,13 +1428,13 @@ function _fsStatus(msg){
 }
 // ONE WHEP attempt: returns the connected-pending pc on an accepted offer, throws otherwise. A 404
 // means the stream isn't published yet (the robot is still waking) — the caller retries.
-async function whepAttempt(node){
+async function whepAttempt(node, v){
   const r=ROBOTS.find(x=>x.node===node);
   if(!r||!r.rtsp) throw new Error('no-rtsp-entry');
   const u=new URL(r.rtsp.replace(/^rtsp:/,'http:'));
   const port=8189+(parseInt(u.port||'8554',10)-8554);
   const path=u.pathname.replace(/^\//,'');
-  const v=document.getElementById('fsvid');
+  v = v || document.getElementById('fsvid');
   const pc=new RTCPeerConnection({iceServers:[]});
   pc.addTransceiver('video',{direction:'recvonly'});
   pc.addTransceiver('audio',{direction:'recvonly'});
@@ -1427,8 +1460,8 @@ function _waitConn(pc, ms){
       else if(pc.connectionState==='failed'){clearTimeout(t);res('failed');} });
   });
 }
-function hlsPlay(node, attempt){
-  const v=document.getElementById('fsvid'); const src=hlsSrc(node);
+function hlsPlay(node, attempt, vEl){
+  const v=vEl || document.getElementById('fsvid'); const src=hlsSrc(node);
   if(!src) return;
   attempt=attempt||0;
   const open=()=>document.getElementById('fs').style.display==='block';
@@ -1457,7 +1490,7 @@ function hlsPlay(node, attempt){
       }
       try{hls.destroy();}catch(x){}
       if(!open()) return;
-      if(attempt<3){ setTimeout(()=>{ if(open()) hlsPlay(node, attempt+1); }, 1500); }
+      if(attempt<3){ setTimeout(()=>{ if(open()) hlsPlay(node, attempt+1, v); }, 1500); }
       else { _fsStatus('Video unavailable over this connection ('+(d.details||d.type)+
                        '). Try again, or use the LAN/VPN for the fluid stream.'); }
     });
@@ -1475,61 +1508,84 @@ function hlsPlay(node, attempt){
 // wake and produce the first frame), so we RETRY the WHEP offer until the publisher is up instead of
 // giving up on the first 404 (that was the bug: it fell straight back to the ~5 s HLS). Only if the
 // offer is accepted but ICE genuinely can't connect do we fall back to HLS.
-async function fsPlay(node){
-  const v=document.getElementById('fsvid');
+// One live player, used by BOTH the fullscreen drive view and the robot page. WebRTC first (fluid);
+// if it can't connect we ASK before dropping to HLS, because on a cold start the robot simply needs
+// a few seconds to publish and downgrading then would be a mistake.
+async function playLive(v, node, o){
+  o = o || {};
+  const open = o.open || (()=>true);
+  const status = o.status || (()=>{});
+  const badge = o.badge || (()=>{});
+  const host = o.host || v.parentNode;
   _cleanupVid(v);
   const gen=(v._gen=(v._gen||0)+1);
-  const open=()=>document.getElementById('fs').style.display==='block' && v._gen===gen;
-  _fsStatus('Connecting to the robot…');
-  // The URL only HINTS at where you are: opening HA through a domain (Cloudflare/Nabu Casa/reverse
-  // proxy) looks "remote" even when you're sitting on the same LAN as the robot — and then WebRTC
-  // would work fine. So we NEVER skip WebRTC: when the URL looks remote we just probe it BRIEFLY
-  // (a few seconds) and fall back to HLS if it can't connect. On the LAN (any URL) you still get the
-  // fluid ~200 ms video; truly off-LAN you lose only a few seconds before HLS takes over.
-  const maybeRemote=isLikelyRemote();
-  const deadline=Date.now()+(maybeRemote?6000:20000);
-  const connWait=maybeRemote?3500:6000;   // how long to wait for ICE per attempt
-  const maxIceFails=maybeRemote?1:2;
-  let iceFails=0;
-  while(open() && Date.now()<deadline){
-    let pc;
-    try{ pc=await whepAttempt(node); }
-    catch(e){ if(!open()) return; await new Promise(r=>setTimeout(r,900)); continue; }  // not ready → retry
-    if(!open()){ try{pc.close();}catch(e){} return; }
-    v._pc=pc;
-    const st=await _waitConn(pc, connWait);
-    if(!open()){ try{pc.close();}catch(e){} return; }
-    if(st==='connected'){
-      _fsStatus(null);                 // FLUID WebRTC is playing
-      _fsWatchStats(v, pc);            // badge: WebRTC · Nfps
-      // WebRTC means the browser talks to the add-on directly: it can carry the robot's High source
-      // (~720p). Remember it, so next time we ask for High *before* connecting (no mid-stream switch).
-      localStorage.setItem('ebo_transport','webrtc');
-      const cur=(ROBOTS.find(x=>x.node===node)||{}).state||{};
-      if(cur.video_quality!=='High'){ bg(node,'video_quality/set','High'); }
-      pc.addEventListener('connectionstatechange',()=>{   // self-heal if the stream drops
-        if((pc.connectionState==='failed'||pc.connectionState==='disconnected') && open() && v._pc===pc){
-          bg(node,'camera/set','on'); setTimeout(()=>{ if(open()&&v._pc===pc) fsPlay(node); },800);
-        } });
-      return;
+  const alive=()=>open() && v._gen===gen;
+  status('Connecting to the robot…');
+  const maybeRemote = isLikelyRemote() && localStorage.getItem('ebo_transport')!=='webrtc';
+  let round=0;
+  while(alive()){
+    round++;
+    const deadline=Date.now()+(maybeRemote?6000:20000);
+    const connWait=maybeRemote?3500:6000;
+    const maxIceFails=maybeRemote?1:2;
+    let iceFails=0;
+    while(alive() && Date.now()<deadline){
+      let pc;
+      try{ pc=await whepAttempt(node, v); }
+      catch(e){ if(!alive()) return; await new Promise(r=>setTimeout(r,900)); continue; }
+      if(!alive()){ try{pc.close();}catch(e){} return; }
+      v._pc=pc;
+      const st=await _waitConn(pc, connWait);
+      if(!alive()){ try{pc.close();}catch(e){} return; }
+      if(st==='connected'){
+        status(null);
+        localStorage.setItem('ebo_transport','webrtc');
+        if(o.stats) _fsWatchStats(v, pc); else badge('WebRTC','webrtc');
+        const cur=(ROBOTS.find(x=>x.node===node)||{}).state||{};
+        if(o.raiseQuality && cur.video_quality!=='High'){ bg(node,'video_quality/set','High'); }
+        pc.addEventListener('connectionstatechange',()=>{
+          if((pc.connectionState==='failed'||pc.connectionState==='disconnected') && alive() && v._pc===pc){
+            bg(node,'camera/set','on'); setTimeout(()=>{ if(alive()&&v._pc===pc) playLive(v,node,o); },800);
+          } });
+        return;
+      }
+      try{pc.close();}catch(e){} v._pc=null;
+      if(++iceFails>=maxIceFails) break;
+      await new Promise(r=>setTimeout(r,600));
     }
-    try{pc.close();}catch(e){} v._pc=null;
-    if(++iceFails>=maxIceFails) break;   // answer OK but ICE won't connect → network issue → HLS
-    await new Promise(r=>setTimeout(r,600));
+    if(!alive()) return;
+    // Out of patience for this round. Remote (or already told to use HLS) → just switch. On the LAN,
+    // ask: it's usually the camera still waking up, and HLS would be a needless downgrade.
+    if(!maybeRemote && o.ask && round<4){
+      status(null);
+      const useHls = await askSwitchToHls(host);
+      if(!alive()) return;
+      if(!useHls){ status('Connecting to the robot…'); continue; }   // keep trying WebRTC
+    }
+    break;
   }
-  if(open()){
-    localStorage.setItem('ebo_transport','hls');
-    const _st=(ROBOTS.find(x=>x.node===node)||{}).state||{};
-    if(_st.video_quality!=='Low'){ bg(node,'video_quality/set','Low'); }   // keep remote watchable
-    _fsBadge(maybeRemote?'HLS · remote':'HLS · fallback', 'hls');
-    console.log('[ebo] WebRTC unavailable → HLS');
-    _fsStatus('Starting video…');                       // cleared when it actually plays
-    v.addEventListener('playing',()=>{ if(open()) _fsStatus(null); },{once:true});
-    hlsPlay(node);
-  }
+  if(!alive()) return;
+  localStorage.setItem('ebo_transport','hls');
+  const st2=(ROBOTS.find(x=>x.node===node)||{}).state||{};
+  if(o.raiseQuality && st2.video_quality!=='Low'){ bg(node,'video_quality/set','Low'); }
+  badge(maybeRemote?'HLS · remote':'HLS · fallback','hls');
+  status('Starting video…');
+  v.addEventListener('playing',()=>{ if(alive()) status(null); },{once:true});
+  hlsPlay(node, 0, v);
 }
+
+async function fsPlay(node){
+  const v=document.getElementById('fsvid');
+  return playLive(v, node, {
+    open: ()=>document.getElementById('fs').style.display==='block',
+    status: _fsStatus, badge: _fsBadge, host: document.getElementById('fs'),
+    stats: true, raiseQuality: true, ask: true,
+  });
+}
+
 let _driveVQ=null;   // video quality saved on entering drive, restored on exit
 function enterFS(node){
+  stopDetailVideo();          // don't keep two WebRTC sessions on the same robot
   fsNode=node; fsDX=0; fsDY=0;
   const hw=document.getElementById('fs-hlswarn');   // re-arm the brief HLS notice for this session
   if(hw){ hw.dataset.shown=''; hw.style.display='none'; hw.classList.remove('fade'); }
@@ -1580,6 +1636,7 @@ function exitFS(){
   _driveVQ=null;
   _cleanupVid(v);                                      // stop WebRTC + HLS
   document.getElementById('fs').style.display='none';
+  startDetailVideo(ROBOTS.find(x=>x.node===node));   // hand the picture back to the robot page
   if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
 }
 // keyboard driving in fullscreen: arrow keys (or WASD) hold-to-move, Esc exits. Multiple keys held
@@ -1629,6 +1686,7 @@ function detailView(r){
   return `<div class="detail">
     <div class="bigwrap ${cam?'':'asleep'}" onclick="enterFS('${r.node}')" title="Tap for fullscreen">
       <img class="big prev" data-node="${r.node}" src="${B}/api/snapshot?node=${encodeURIComponent(r.node)}&t=${Date.now()}" onerror="this.style.opacity=.25">
+      <video id="dvid" class="big live" autoplay muted playsinline style="display:none"></video>
       ${cam ? `<span class="fshint">⛶ tap for fullscreen</span>
       <button class="sleepbtn" title="Send the robot to sleep (Zz)" onclick="event.stopPropagation();sleepRobot('${r.node}',this)">😴 Sleep</button>` : `
       <button class="wakebtn" title="Wake the robot" onclick="event.stopPropagation();wakeRobot('${r.node}',this)">
@@ -1704,6 +1762,7 @@ function render(force){
   const r = SEL && ROBOTS.find(x=>x.node===SEL);
   document.getElementById('view').innerHTML = r? detailView(r) : listView();
   initJoysticks();      // wire the analog joystick(s) in the freshly-rendered detail view
+  startDetailVideo(r);  // live video on the robot page (falls back to the snapshot when asleep)
 }
 function updateValues(){
   if(SEL){
@@ -1775,7 +1834,12 @@ async function removeRobot(node){
 }
 // smooth preview: preload the next snapshot off-screen, then swap it in on load (no blank/flicker)
 function previewLoop(){
+  // Skip the big preview while the live video is covering it: every refresh costs an ffmpeg grab
+  // on the add-on, and nobody can see the result anyway.
+  const _dv=document.getElementById('dvid');
+  const liveCovering = !!(_dv && _dv.style.display!=='none');
   document.querySelectorAll('img.prev').forEach(el=>{
+    if(liveCovering && el.classList.contains('big')) return;
     const n=el.getAttribute('data-node'); if(!n) return;
     const im=new Image();
     im.onload=()=>{ el.src=im.src; el.style.opacity=1; };
