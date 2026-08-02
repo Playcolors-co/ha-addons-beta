@@ -1,5 +1,24 @@
 # Changelog — Enabot integration
 
+## 0.26.99 — hardening pass before the public release
+- **"Keep trying or use HLS?" actually works now.** The question the player asks when the fluid
+  video doesn't come up was never drawn: the code called a function that didn't exist, so instead of
+  asking, the video stopped there — no question, no fallback, just "Connecting…". A test now fails
+  the build if the panel calls a function nobody wrote.
+- **Fixed a leaked video session on the robot page.** Each time the robot fell asleep and woke up,
+  the page was rebuilt and the previous stream kept running in the background, one per cycle.
+- **The robot page can recover its own video.** Its HLS path was wired to the fullscreen view, so a
+  network hiccup there never retried and its error messages went to an invisible element.
+- **The data API refuses to answer without a token.** If the token file couldn't be written at boot
+  the token ended up empty, and an empty header would then have been accepted — on a port that is
+  reachable from your whole network. It now refuses everything until a token exists, and compares it
+  in constant time.
+- **Home Assistant recovers if the add-on's API token or hostname changes.** Those were stored when
+  the robot was added; if they changed, every entity stayed unavailable with no way back short of
+  removing and re-adding the device. They're now re-read at startup.
+- Adding robots when the add-on is unreachable now says so, instead of "no new robots to add".
+- The activity label ("charging") uses the same corrected signal as the docked flag.
+
 ## 0.26.98 — Home Assistant entities: peer review and hardening
 - **No more "unknown" selects.** *Image style* and *Eyes* are write-only on the robot (it never
   reports them back), so they showed as unknown after every restart. The add-on now remembers what
@@ -19,6 +38,10 @@
   **Configuration** section, so the main controls list is the things you actually use while driving.
 - The device now shows its **firmware version and serial number**, and the camera shares the exact
   same device record as the other entities.
+- Fixed a leak on the robot page: when the robot fell asleep and woke up, the page rebuilt and left
+  the previous video session running in the background, one per cycle.
+- *Upgrading:* Home Assistant may report that the Wi-Fi sensor's unit changed (it had none before).
+  Developer tools → **Statistics** offers a one-click fix; until then its history is paused.
 
 ## 0.26.97 — smooth video on the robot page, and it asks before downgrading
 - **The robot page now shows the same live stream as the drive view.** It used to refresh snapshots,

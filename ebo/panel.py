@@ -10,6 +10,7 @@ No extra dependencies: stdlib http.server + paho-mqtt + ffmpeg.
 """
 import base64
 import io
+import hmac
 import json
 import os
 import subprocess
@@ -310,8 +311,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def _authed(self):
         # the ingress server (8099) is authenticated by HA; the API port (8098) needs the token
-        return (not getattr(self.server, "require_token", False)
-                or self.headers.get("X-Enabot-Token") == API_TOKEN)
+        if not getattr(self.server, "require_token", False):
+            return True
+        # No token configured (e.g. /data wasn't writable at boot) → refuse everything rather than
+        # letting an empty header through, since this port is reachable from the whole LAN.
+        if not API_TOKEN:
+            return False
+        return hmac.compare_digest(self.headers.get("X-Enabot-Token") or "", API_TOKEN)
 
     def _send(self, code, body, ctype="application/json"):
         if isinstance(body, str):
@@ -904,14 +910,19 @@ function routesHtml(r){
 // Live video on the robot page. It reuses the very same player as the drive view, so the picture is
 // as smooth there as it is in fullscreen (it used to be a slideshow of snapshots). While the robot
 // sleeps there's nothing to play, so the last frame + the wake button stay visible.
+let _dvidEl=null;   // the <video> the robot page currently owns (a re-render REPLACES that node)
 function startDetailVideo(r){
+  stopDetailVideo();            // first: this also kills a loop left on a node we just replaced
   const v=document.getElementById('dvid');
   if(!v) return;
-  stopDetailVideo();
   if(!r || r.camera!=='on') return;
+  _dvidEl=v;
   v.style.display='';
   playLive(v, r.node, {
-    open: ()=>!!document.getElementById('dvid') && SEL===r.node,
+    // Identity check, not "is there a #dvid": when the view is rebuilt (the robot falls asleep and
+    // wakes up) the old node is thrown away, and looking it up by id would find the NEW one — the
+    // old loop would keep retrying WHEP forever and leak its RTCPeerConnection.
+    open: ()=> _dvidEl===v && SEL===r.node,
     host: v.parentNode,
     ask: true,                       // same courtesy as fullscreen: ask before downgrading
     badge: (txt,kind)=>{             // reuse the detail hint line to show which path is in use
@@ -923,8 +934,13 @@ function startDetailVideo(r){
   });
 }
 function stopDetailVideo(){
-  const v=document.getElementById('dvid');
-  if(v){ _cleanupVid(v); v.style.display='none'; }
+  const v=_dvidEl || document.getElementById('dvid');
+  if(v){
+    v._gen=(v._gen||0)+1;      // invalidates any playLive loop still running on this node
+    _cleanupVid(v);
+    try{ v.style.display='none'; }catch(e){}
+  }
+  _dvidEl=null;
 }
 
 // Wake the robot straight from the detail view (no need to enter fullscreen just to wake it).
@@ -1460,11 +1476,16 @@ function _waitConn(pc, ms){
       else if(pc.connectionState==='failed'){clearTimeout(t);res('failed');} });
   });
 }
-function hlsPlay(node, attempt, vEl){
+// o = {open, status} — WHO is watching. Without it this assumed the fullscreen view, so on the robot
+// page a fatal HLS error would never retry and its message would be written into the (hidden)
+// fullscreen status line instead of anywhere visible.
+function hlsPlay(node, attempt, vEl, o){
   const v=vEl || document.getElementById('fsvid'); const src=hlsSrc(node);
   if(!src) return;
   attempt=attempt||0;
-  const open=()=>document.getElementById('fs').style.display==='block';
+  o = o || {};
+  const open = o.open || (()=>document.getElementById('fs').style.display==='block');
+  const status = o.status || _fsStatus;
   // CRITICAL: a previous WebRTC attempt may have left a (dead) MediaStream on the element via
   // pc.ontrack. srcObject takes PRECEDENCE over MSE/src, so HLS would attach and show a BLACK
   // screen. Always detach the peer connection and clear srcObject before playing HLS.
@@ -1490,9 +1511,9 @@ function hlsPlay(node, attempt, vEl){
       }
       try{hls.destroy();}catch(x){}
       if(!open()) return;
-      if(attempt<3){ setTimeout(()=>{ if(open()) hlsPlay(node, attempt+1, v); }, 1500); }
-      else { _fsStatus('Video unavailable over this connection ('+(d.details||d.type)+
-                       '). Try again, or use the LAN/VPN for the fluid stream.'); }
+      if(attempt<3){ setTimeout(()=>{ if(open()) hlsPlay(node, attempt+1, v, o); }, 1500); }
+      else { status('Video unavailable over this connection ('+(d.details||d.type)+
+                    '). Try again, or use the LAN/VPN for the fluid stream.'); }
     });
     hls.on(Hls.Events.MANIFEST_PARSED,()=>{ v.play().catch(()=>{}); });
     hls.loadSource(src); hls.attachMedia(v);
@@ -1500,7 +1521,7 @@ function hlsPlay(node, attempt, vEl){
   } else if(v.canPlayType('application/vnd.apple.mpegurl')){
     // Safari / iOS webview: native HLS.
     v.src=src;
-    v.addEventListener('error',()=>{ if(open()) _fsStatus('Video unavailable over this connection.'); },{once:true});
+    v.addEventListener('error',()=>{ if(open()) status('Video unavailable over this connection.'); },{once:true});
     v.play().catch(()=>{});
   }
 }
@@ -1508,6 +1529,37 @@ function hlsPlay(node, attempt, vEl){
 // wake and produce the first frame), so we RETRY the WHEP offer until the publisher is up instead of
 // giving up on the first 404 (that was the bug: it fell straight back to the ~5 s HLS). Only if the
 // offer is accepted but ICE genuinely can't connect do we fall back to HLS.
+// "The fluid video isn't coming up — keep trying, or drop to HLS?" Resolves true = use HLS.
+// It is appended INSIDE `host` on purpose: in native fullscreen the browser paints only the
+// fullscreen subtree, so a dialog attached to <body> would be invisible there.
+function askSwitchToHls(host){
+  return new Promise(resolve=>{
+    host = host || document.body;
+    const old=host.querySelector('.askhls'); if(old) old.remove();
+    const box=document.createElement('div');
+    box.className='askhls';
+    box.innerHTML='<div class="m"><b>The fluid video isn&rsquo;t coming up yet.</b><br>'+
+      'The robot may still be waking its camera. Keep trying, or switch to the slower stream '+
+      '(about a second behind).</div>'+
+      '<div class="r"><button class="btn" data-a="keep">Keep trying</button>'+
+      '<button class="btn pri" data-a="hls">Use HLS</button></div>';
+    let done=false;
+    const finish=v=>{ if(done) return; done=true; clearTimeout(t);
+                      try{box.remove();}catch(e){} resolve(v); };
+    // The robot page's .bigwrap opens fullscreen when clicked — swallow clicks so answering the
+    // question doesn't also throw you into the drive view.
+    box.addEventListener('click',e=>{
+      e.stopPropagation();
+      const a=e.target&&e.target.getAttribute&&e.target.getAttribute('data-a');
+      if(a==='keep') finish(false); else if(a==='hls') finish(true);
+    });
+    // Nobody in front of the screen (or the view got rebuilt under us): don't hang forever with a
+    // "Connecting…" spinner — give them a picture.
+    const t=setTimeout(()=>finish(true), 30000);
+    host.appendChild(box);
+  });
+}
+
 // One live player, used by BOTH the fullscreen drive view and the robot page. WebRTC first (fluid);
 // if it can't connect we ASK before dropping to HLS, because on a cold start the robot simply needs
 // a few seconds to publish and downgrading then would be a mistake.
@@ -1571,7 +1623,7 @@ async function playLive(v, node, o){
   badge(maybeRemote?'HLS · remote':'HLS · fallback','hls');
   status('Starting video…');
   v.addEventListener('playing',()=>{ if(alive()) status(null); },{once:true});
-  hlsPlay(node, 0, v);
+  hlsPlay(node, 0, v, {open: alive, status});
 }
 
 async function fsPlay(node){

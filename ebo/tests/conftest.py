@@ -36,6 +36,10 @@ elog.log = lambda *a, **k: None
 elog.raw = lambda *a, **k: None
 
 # ---- paho.mqtt.client ----
+# ---- segno: only used by panel.py to draw the pairing QR ----
+segno = _mod("segno")
+segno.make = lambda *a, **k: types.SimpleNamespace(save=lambda *a, **k: None)
+
 paho = _mod("paho")
 pmq = _mod("paho.mqtt")
 pmc = _mod("paho.mqtt.client")

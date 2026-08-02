@@ -1904,16 +1904,20 @@ class Bridge:
     def _ui_load(self):
         try:
             with open(self._ui_path, encoding="utf-8") as f:
-                return json.load(f) or {}
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
         except Exception:
-            return {}
+            return {}          # missing or corrupt: start clean, it's only a UI convenience
 
     def _ui_save(self, **kw):
-        """Remember a write-only setting across restarts (eyes style, image style)."""
+        """Remember a write-only setting across restarts (eyes style, image style).
+        Written atomically: a half-written file here would make the next boot lose both choices."""
         self._ui.update(kw)
+        tmp = self._ui_path + ".tmp"
         try:
-            with open(self._ui_path, "w", encoding="utf-8") as f:
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self._ui, f)
+            os.replace(tmp, self._ui_path)
         except Exception as e:
             log("could not persist UI choices: %s" % e)
 
@@ -1922,7 +1926,9 @@ class Bridge:
 
     def _task_label(self, tasks, stt, b):
         """Human-readable current activity from the tasks[] array / status flags."""
-        if b.get("adapterStatus", -1) != -1 and (b.get("percentage") or 0) < 100:
+        # same rule as the docked flag: adapterStatus alone misses some charging states
+        if ((b.get("adapterStatus", -1) != -1 or b.get("chargeStatus"))
+                and (b.get("percentage") or 0) < 100):
             base = "charging"
         else:
             base = "idle"
