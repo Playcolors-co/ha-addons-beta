@@ -33,9 +33,13 @@ it is nested inside the add-on folder, where HACS never looks. It needs no entry
   taking the **first directory** under `custom_components/`. A second one is not merely unreachable:
   whichever sorts first *takes the slot*, so an already-downloaded integration would be swapped out
   from under its users on the next refresh. Never add a second folder here.
-  A component that must be staged in this repo anyway goes somewhere HACS does not look — e.g.
-  `integrations/<name>/custom_components/<domain>/` — and is tested by copying it into
-  `/config/custom_components`.
+  A component that must be staged in this repo anyway goes in **`beta_integrations/<domain>/`** at
+  the repo **root** — never as a subfolder of `custom_components/`. That directory is a namespace
+  where every entry must be an integration domain carrying its own `manifest.json`: a grouping folder
+  there would be resolved *as* the integration by HACS (breaking the repo) and would make Home
+  Assistant log an invalid-manifest error on every start. From `beta_integrations/` a component is
+  tested by copying it into `/config/custom_components`, and promoted by rsync into the stable repo's
+  `custom_components/<domain>/`.
   For a standalone integration, the lighter option is **no second repo at all**: keep one public repo
   and ship betas as GitHub **pre-releases**, which testers opt into with *Show beta versions* on that
   repository in HACS. That is how BinHass works (table above).
