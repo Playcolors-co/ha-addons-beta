@@ -1,66 +1,48 @@
 # Playcolors.co — Home Assistant beta channel
 
-Beta / test builds of Playcolors.co **Home Assistant add-ons and integrations**. This is the
-pre-release channel: things here are newer, and may break. Every project's **stable** version lives
-in its own public repository (see the table below) — this repo only ever holds betas.
+> ⚠️ **This repository is being retired.** Every project now carries its own beta channel inside its
+> own public repository, so there is nothing left for a separate beta repo to do. See
+> [what replaces it](#what-replaces-this-repo). It stays up, unchanged, until the new channels are
+> confirmed working.
 
-One repository, two front doors: Home Assistant picks up the **add-ons** from the Add-on Store, HACS
-picks up the **integration** from the same URL. Adding it in both places costs nothing and lets you
-test the whole line-up from a single source.
+Beta / test builds of Playcolors.co Home Assistant add-ons.
 
-## What's in beta right now
+## What's still here
 
-| Project | Kind | Install from | Stable channel |
-|---|---|---|---|
-| [`ebo/`](ebo/) | **Add-on** — EBO for Home Assistant: drive, see and hear your Enabot EBO robot (cloud family: Air 2, X, Max). Bundles and auto-installs its own `ebo` integration. | Add-on Store | [Playcolors-co/ha-enabot](https://github.com/Playcolors-co/ha-enabot) |
-| [`custom_components/ebo_local/`](custom_components/ebo_local/) | **Integration** — EBO Local: talks to the EBO Air 2 on your LAN, no vendor cloud in the live path. Research in progress. | HACS | [Playcolors-co/ha-ebo-local](https://github.com/Playcolors-co/ha-ebo-local) |
+| Project | Kind | Stable channel |
+|---|---|---|
+| [`ebo/`](ebo/) | **Add-on** — EBO for Home Assistant: drive, see and hear your Enabot EBO robot (cloud family: Air 2, X, Max) | [Playcolors-co/ha-enabot](https://github.com/Playcolors-co/ha-enabot) |
 
-Not every project betas here: a standalone integration may instead ship its betas as GitHub
-pre-releases from its own repository. Currently that's
-[BinHass](https://github.com/Playcolors-co/ha-binhass) (Waltham Forest bin collections) — add that
-repo in HACS and turn on *Show beta versions* to follow its beta channel.
-
-## Install the add-ons (Home Assistant Add-on Store)
-
-**Settings → Add-ons → Add-on Store → ⋮ (top right) → Repositories**, then add:
+Add it in **Settings → Add-ons → Add-on Store → ⋮ → Repositories**:
 
 ```
 https://github.com/Playcolors-co/ha-addons-beta
 ```
 
-The beta builds appear in the store alongside the stable ones. A beta add-on and its stable twin
-have different slugs, so you can **install both side by side** and compare.
+## What replaces this repo
 
-## Install the integration (HACS)
+Both Home Assistant front doors can serve a beta channel from a project's own repository — no second
+repository needed on either side.
 
-**HACS → ⋮ (top right) → Custom repositories**, then add the same URL with category
-**Integration**:
+**Add-ons** — Supervisor accepts a `#<branch>` suffix on a repository URL and identifies a repository
+by the hash of the *whole* string, so a branch-pinned URL is a separate repository whose add-on
+installs alongside the stable one:
 
 ```
-https://github.com/Playcolors-co/ha-addons-beta
+https://github.com/Playcolors-co/ha-enabot#beta
 ```
 
-Then download *EBO Local (unofficial, beta)* and restart Home Assistant.
+**Integrations** — HACS offers, per repository, the stable releases, plus pre-releases to anyone who
+turns on *Show beta versions*, plus the default branch from the version picker:
 
-> **Beta and stable cannot coexist.** Unlike add-ons, an integration is identified by its domain
-> (`ebo_local`), so the beta installs over the stable one in `custom_components/`. Pick one channel
-> per Home Assistant instance. To go back, remove it in HACS and re-download from
-> [`ha-ebo-local`](https://github.com/Playcolors-co/ha-ebo-local).
+| Project | Repository | Beta |
+|---|---|---|
+| Enabot Local | [`ha-ebo-local`](https://github.com/Playcolors-co/ha-ebo-local) | pre-releases (`v0.1.0b1`) |
+| BinHass | [`ha-binhass`](https://github.com/Playcolors-co/ha-binhass) | pre-releases |
 
-## How this channel works
-
-- **Everything here is a pre-release.** Expect rough edges; report anything odd on the relevant
-  project's issue tracker (the stable repo linked above).
-- **Stable lives elsewhere.** Once a beta is proven it is promoted to the project's own public repo.
-- **Layout.** Add-ons are one top-level folder each (the folder holding `config.yaml`); the HACS
-  integration lives in `custom_components/<domain>/`. The two mechanisms ignore each other:
-  Supervisor only scans top-level folders with a `config.yaml`, HACS only downloads
-  `custom_components/<domain>/`.
-- **One HACS integration per repository** — that is a HACS limit, not a choice. See
-  [PUBLISHING.md](PUBLISHING.md) for what happens when a second one arrives.
-
-Maintainers: the promote-to-stable recipe and the per-project mapping live in
-[PUBLISHING.md](PUBLISHING.md).
+The `ebo_local` integration that briefly lived here has moved to its own repository and was renamed
+to the domain **`enabot_local`**. If you downloaded it here through HACS, remove it and download it
+again from [`ha-ebo-local`](https://github.com/Playcolors-co/ha-ebo-local).
 
 ## Not affiliated
 
