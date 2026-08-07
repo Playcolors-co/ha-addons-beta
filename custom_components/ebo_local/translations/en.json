@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a local EBO robot",
+        "description": "Enter the robot id and the TUTK/Kalay credentials from your own Enabot account. This project does not ship them.",
+        "data": {
+          "name": "Name",
+          "robot_id": "Robot id / serial",
+          "tutk_uid": "TUTK UID",
+          "tutk_license": "TUTK SDK license key",
+          "tutk_identity": "TUTK token identity",
+          "tutk_token": "TUTK token value",
+          "tunnel_helper": "Kalay tunnel helper command",
+          "tunnel_local_port": "Local tunnel port"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This robot is already added."
+    }
+  }
+}
