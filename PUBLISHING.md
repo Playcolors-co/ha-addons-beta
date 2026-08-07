@@ -10,6 +10,12 @@ project; each project is promoted to its **own public stable repository** when i
 | EBO for Home Assistant | Add-on | `ebo/` | slug `ebo` | [`Playcolors-co/ha-enabot`](https://github.com/Playcolors-co/ha-enabot) |
 | EBO Local | Integration (HACS) | `custom_components/ebo_local/` | domain `ebo_local` | [`Playcolors-co/ha-ebo-local`](https://github.com/Playcolors-co/ha-ebo-local) |
 
+Projects that are **not** hosted here, for reference — their beta lives in their own repository:
+
+| Component | Kind | Beta channel | Repository |
+|---|---|---|---|
+| BinHass — Waltham Forest bin collections | Integration (HACS) | GitHub **pre-releases** in the same repo (HACS → repository → *Show beta versions*) | [`Playcolors-co/ha-binhass`](https://github.com/Playcolors-co/ha-binhass) |
+
 The `ebo` add-on **bundles** its own native integration at `ebo/ha_integration/custom_components/ebo`
 and installs it into the Home Assistant config dir at start-up. That is *not* a HACS integration —
 it is nested inside the add-on folder, where HACS never looks. It needs no entry of its own here.
@@ -24,9 +30,15 @@ it is nested inside the add-on folder, where HACS never looks. It needs no entry
   `hacs.json`. HACS downloads *only* that subtree, so the add-on folders never reach the user's
   config dir.
 - **Exactly one HACS integration per repository, per category.** HACS resolves the integration by
-  taking the first directory under `custom_components/`; a second one would simply be unreachable.
-  If a second integration ever needs a beta channel, give it its own beta repo
-  (`<project>-beta`) and add it to the map above — do **not** add a second folder here.
+  taking the **first directory** under `custom_components/`. A second one is not merely unreachable:
+  whichever sorts first *takes the slot*, so an already-downloaded integration would be swapped out
+  from under its users on the next refresh. Never add a second folder here.
+  A component that must be staged in this repo anyway goes somewhere HACS does not look — e.g.
+  `integrations/<name>/custom_components/<domain>/` — and is tested by copying it into
+  `/config/custom_components`.
+  For a standalone integration, the lighter option is **no second repo at all**: keep one public repo
+  and ship betas as GitHub **pre-releases**, which testers opt into with *Show beta versions* on that
+  repository in HACS. That is how BinHass works (table above).
   Other HACS *categories* (a Lovelace plugin, a theme) can share this repo: they are added in HACS
   as the same URL under a different category.
 - **No releases/tags in this repo.** With no GitHub release present, HACS tracks the default branch

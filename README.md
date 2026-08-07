@@ -15,6 +15,11 @@ test the whole line-up from a single source.
 | [`ebo/`](ebo/) | **Add-on** — EBO for Home Assistant: drive, see and hear your Enabot EBO robot (cloud family: Air 2, X, Max). Bundles and auto-installs its own `ebo` integration. | Add-on Store | [Playcolors-co/ha-enabot](https://github.com/Playcolors-co/ha-enabot) |
 | [`custom_components/ebo_local/`](custom_components/ebo_local/) | **Integration** — EBO Local: talks to the EBO Air 2 on your LAN, no vendor cloud in the live path. Research in progress. | HACS | [Playcolors-co/ha-ebo-local](https://github.com/Playcolors-co/ha-ebo-local) |
 
+Not every project betas here: a standalone integration may instead ship its betas as GitHub
+pre-releases from its own repository. Currently that's
+[BinHass](https://github.com/Playcolors-co/ha-binhass) (Waltham Forest bin collections) — add that
+repo in HACS and turn on *Show beta versions* to follow its beta channel.
+
 ## Install the add-ons (Home Assistant Add-on Store)
 
 **Settings → Add-ons → Add-on Store → ⋮ (top right) → Repositories**, then add:
